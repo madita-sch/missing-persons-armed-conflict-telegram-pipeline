@@ -1,11 +1,33 @@
-from sklearn.cluster import DBSCAN, KMeans
+import pandas as pd
+from sentence_transformers import SentenceTransformer
+from sklearn.cluster import KMeans
 
-class TextClusterer:
-    def __init__(self, method="dbscan"):
-        self.method = method
+MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-    def cluster(self, X):
-        if self.method == "dbscan":
-            return DBSCAN(eps=0.6, metric="cosine").fit_predict(X)
-        else:
-            return KMeans(n_clusters=5).fit_predict(X)
+
+def load_data(path):
+    df = pd.read_csv(path)
+    return df["text"].tolist()
+
+
+def embed_texts(texts):
+    model = SentenceTransformer(MODEL_NAME)
+    embeddings = model.encode(texts, show_progress_bar=True)
+    return embeddings
+
+
+def cluster_texts(texts, n_clusters=5):
+    embeddings = embed_texts(texts)
+
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    labels = kmeans.fit_predict(embeddings)
+
+    return labels
+
+
+def save_clusters(texts, labels, output_path):
+    df = pd.DataFrame({
+        "text": texts,
+        "cluster": labels
+    })
+    df.to_csv(output_path, index=False)

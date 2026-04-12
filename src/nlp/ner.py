@@ -1,22 +1,21 @@
-import re
+from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 
-class RegexNER:
-    def __init__(self):
-        self.name_pattern = re.compile(r"([اأإآء-ي]{2,}(?:\s+[اأإآء-ي]{2,}){1,3})")
-        self.loc_pattern = re.compile(r"(?:في|بمنطقة|شرق|غرب|شمال|جنوب)\s+([اأإآء-ي\s]{2,})")
+MODEL_NAME = "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner"
 
-    def extract(self, text):
-        return {
-            "names": self.name_pattern.findall(text),
-            "locations": self.loc_pattern.findall(text)
-        }
-    
 
-class TransformerNER:
-    def __init__(self, model, tokenizer):
-        self.model = model
-        self.tokenizer = tokenizer
-        
-    def predict(self, text):
-        # inference only
-        return entities
+def load_ner_pipeline():
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = AutoModelForTokenClassification.from_pretrained(MODEL_NAME)
+
+    return pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
+
+
+def extract_entities(texts):
+    ner_pipeline = load_ner_pipeline()
+
+    results = []
+    for text in texts:
+        entities = ner_pipeline(text)
+        results.append(entities)
+
+    return results

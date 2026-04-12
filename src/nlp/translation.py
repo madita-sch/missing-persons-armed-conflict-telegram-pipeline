@@ -1,11 +1,18 @@
 from transformers import MarianMTModel, MarianTokenizer
 
-class Translator:
-    def __init__(self, model_name="Helsinki-NLP/opus-mt-ar-en"):
-        self.tokenizer = MarianTokenizer.from_pretrained(model_name)
-        self.model = MarianMTModel.from_pretrained(model_name)
+MODEL_NAME = "Helsinki-NLP/opus-mt-ar-en"
 
-    def translate(self, text):
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True)
-        outputs = self.model.generate(**inputs, max_length=128)
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+def load_translation_model():
+    tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
+    model = MarianMTModel.from_pretrained(MODEL_NAME)
+    return tokenizer, model
+
+
+def translate_texts(texts):
+    tokenizer, model = load_translation_model()
+
+    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+    translated = model.generate(**inputs)
+
+    return [tokenizer.decode(t, skip_special_tokens=True) for t in translated]

@@ -1,17 +1,16 @@
 import os
 import pandas as pd
 import numpy as np
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import DBSCAN
+import torch
 
 from rapidfuzz import fuzz
 
-import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
-from transformers import MarianMTModel, MarianTokenizer
+# Import YOUR modules
+from src.sequence_classification import predict
+from src.ner import extract_entities
+from src.clustering import cluster_texts
+from src.translation import translate_texts
+
 
 # -----------------------------
 # CONFIG
@@ -19,117 +18,88 @@ from transformers import MarianMTModel, MarianTokenizer
 BASE_DIR = "data/nlp"
 INPUT_PATH = os.path.join(BASE_DIR, "telegram_sample.xlsx")
 
-ANNOTATED_PATH = "data/annotated_final.xlsx"
-OUTPUT_PATH = os.path.join(BASE_DIR, "nlp_results.xlsx")
+ANNOTATED_PATH = "data/annotated_final.xlsx"  # used only for training beforehand
+MODEL_PATH = "models/sequence_classifier"     # <-- must exist after training
 
-DEVICE = 0 if torch.cuda.is_available() else -1
+OUTPUT_PATH = os.path.join(BASE_DIR, "nlp_results.xlsx")
 
 
 # =========================================================
-# 1. LOAD DATA (VERY SMALL SAMPLE ONLY)
+# 1. LOAD DATA
 # =========================================================
 df = pd.read_excel(INPUT_PATH)
 df = df.sample(n=min(200, len(df)), random_state=42).reset_index(drop=True)
 
-annot = pd.read_excel(ANNOTATED_PATH)
-annot = annot[["text_clean", "label"]].dropna()
-
-
-# =========================================================
-# 2. CLASSICAL ML CLASSIFIER (TRAIN)
-# =========================================================
-vectorizer = TfidfVectorizer(
-    max_features=8000,
-    ngram_range=(1, 2),
-    analyzer="char_wb"
-)
-
-X_train = vectorizer.fit_transform(annot["text_clean"])
-y_train = annot["label"]
-
-clf = LogisticRegression(max_iter=1000, class_weight="balanced")
-clf.fit(X_train, y_train)
-
-
-# =========================================================
-# 3. CLASSIFY TELEGRAM SAMPLE
-# =========================================================
 df["text_clean"] = df["text"].fillna("").astype(str)
-X_test = vectorizer.transform(df["text_clean"])
-
-df["missing_prob"] = clf.predict_proba(X_test)[:, 1]
-df["is_missing"] = (df["missing_prob"] > 0.5).astype(int)
 
 
 # =========================================================
-# 4. FILTER ONLY RELEVANT MESSAGES
+# 2. CLASSIFICATION (TRANSFORMER)
+# =========================================================
+print("🔍 Running sequence classification...")
+
+preds = predict(MODEL_PATH, df["text_clean"].tolist())
+
+df["is_missing"] = preds
+df["missing_prob"] = np.nan  # optional (not returned in current model)
+
+
+# =========================================================
+# 3. FILTER RELEVANT CASES
 # =========================================================
 df_cases = df[df["is_missing"] == 1].copy().reset_index(drop=True)
 
+if len(df_cases) == 0:
+    print("⚠️ No relevant cases found.")
+    
 
 # =========================================================
-# 5. NER (TRANSFORMER - ARABIC)
+# 4. NER (from src)
 # =========================================================
-ner = pipeline(
-    "ner",
-    model="CAMeL-Lab/bert-base-arabic-camelbert-mix-ner",
-    tokenizer="CAMeL-Lab/bert-base-arabic-camelbert-mix-ner",
-    device=DEVICE
+print("🧠 Running NER...")
+
+ner_results = extract_entities(df_cases["text_clean"].tolist())
+
+def parse_ner(entities):
+    names, locs, dates = [], [], []
+
+    for e in entities:
+        if e["entity_group"] == "PER":
+            names.append(e["word"])
+        elif e["entity_group"] == "LOC":
+            locs.append(e["word"])
+        elif e["entity_group"] == "DATE":
+            dates.append(e["word"])
+
+    return pd.Series([
+        "; ".join(names),
+        "; ".join(locs),
+        "; ".join(dates)
+    ])
+
+df_cases[["names", "locations", "dates"]] = pd.DataFrame(
+    [parse_ner(e) for e in ner_results]
 )
 
-def extract_ner(text):
-    try:
-        ents = ner(text)
-        names, locs, dates = [], [], []
 
-        for e in ents:
-            if e["entity_group"] == "PER":
-                names.append(e["word"])
-            elif e["entity_group"] == "LOC":
-                locs.append(e["word"])
-            elif e["entity_group"] == "DATE":
-                dates.append(e["word"])
+# =========================================================
+# 5. TRANSLATION
+# =========================================================
+print("🌍 Translating...")
 
-        return pd.Series([
-            "; ".join(names),
-            "; ".join(locs),
-            "; ".join(dates)
-        ])
-    except:
-        return pd.Series([None, None, None])
-
-df_cases[["names", "locations", "dates"]] = df_cases["text_clean"].apply(extract_ner)
+df_cases["translation_en"] = translate_texts(
+    df_cases["text_clean"].tolist()
+)
 
 
 # =========================================================
-# 6. TRANSLATION (AR -> EN)
+# 6. ENTITY MATCHING (FUZZY)
 # =========================================================
-model_name = "Helsinki-NLP/opus-mt-ar-en"
+print("🔗 Matching similar cases...")
 
-translator_tokenizer = MarianTokenizer.from_pretrained(model_name)
-translator_model = MarianMTModel.from_pretrained(model_name)
-
-device_torch = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-translator_model.to(device_torch)
-
-def translate(text):
-    if not text:
-        return ""
-
-    batch = translator_tokenizer([text], return_tensors="pt", padding=True).to(device_torch)
-    gen = translator_model.generate(**batch)
-    return translator_tokenizer.decode(gen[0], skip_special_tokens=True)
-
-df_cases["translation_en"] = df_cases["text_clean"].apply(translate)
-
-
-# =========================================================
-# 7. ENTITY MATCHING (FUZZY)
-# =========================================================
 def match_score(a, b):
     return fuzz.token_set_ratio(str(a), str(b))
 
-# simple self-matching example (can extend later)
 matches = []
 for i in range(len(df_cases)):
     for j in range(i + 1, len(df_cases)):
@@ -142,18 +112,22 @@ df_matches = pd.DataFrame(matches, columns=["i", "j", "similarity"])
 
 
 # =========================================================
-# 8. CLUSTERING (TF-IDF + DBSCAN)
+# 7. CLUSTERING (EMBEDDINGS)
 # =========================================================
-tfidf = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
-X_cases = tfidf.fit_transform(df_cases["text_clean"])
+print("🧩 Clustering...")
 
-dbscan = DBSCAN(eps=0.6, min_samples=2, metric="cosine")
-df_cases["cluster_id"] = dbscan.fit_predict(X_cases)
+if len(df_cases) > 1:
+    clusters = cluster_texts(df_cases["text_clean"].tolist(), n_clusters=5)
+    df_cases["cluster_id"] = clusters
+else:
+    df_cases["cluster_id"] = -1
 
 
 # =========================================================
-# 9. SAVE RESULTS
+# 8. SAVE RESULTS
 # =========================================================
+print("💾 Saving results...")
+
 with pd.ExcelWriter(OUTPUT_PATH) as writer:
     df.to_excel(writer, sheet_name="all_predictions", index=False)
     df_cases.to_excel(writer, sheet_name="missing_cases", index=False)
