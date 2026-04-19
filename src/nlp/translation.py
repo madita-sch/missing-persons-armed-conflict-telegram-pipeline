@@ -1,18 +1,34 @@
+import torch
 from transformers import MarianMTModel, MarianTokenizer
 
 MODEL_NAME = "Helsinki-NLP/opus-mt-ar-en"
 
+# load ONCE (important)
+tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
+model = MarianMTModel.from_pretrained(MODEL_NAME)
 
-def load_translation_model():
-    tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
-    model = MarianMTModel.from_pretrained(MODEL_NAME)
-    return tokenizer, model
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
 
 
 def translate_texts(texts):
-    tokenizer, model = load_translation_model()
+    # clean input
+    texts = [str(t) if t is not None else "" for t in texts]
 
-    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
-    translated = model.generate(**inputs)
+    results = []
 
-    return [tokenizer.decode(t, skip_special_tokens=True) for t in translated]
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        inputs = tokenizer(
+                batch,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=128
+        ).to(device)
+
+        with torch.no_grad():
+            translated = model.generate(**inputs)
+        results.extend(tokenizer.batch_decode(outputs, skip_special_tokens=True))
+
+    return results
