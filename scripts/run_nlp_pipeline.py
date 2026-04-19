@@ -1,137 +1,116 @@
 import os
 import pandas as pd
 import numpy as np
-import torch
 
-from rapidfuzz import fuzz
-
-# Import YOUR modules
-from src.sequence_classification import predict
-from src.ner import extract_entities
-from src.clustering import cluster_texts
-from src.translation import translate_texts
+from src.nlp.classification import predict
+from src.nlp.ner import apply_ner_to_df, load_ner_model
+from src.nlp.translation import translate_texts
+from src.nlp.clustering import cluster_texts
 
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-BASE_DIR = "data/nlp"
-INPUT_PATH = os.path.join(BASE_DIR, "telegram_sample.xlsx")
+def run_nlp_pipeline(
+    input_path="data/nlp/telegram_sample.xlsx",
+    output_path="outputs/nlp_results.xlsx",
+    model_path="./model_output",
+    sample_size=50,
+    run_ner=True,
+    run_translation=True,
+    run_clustering=True
+):
 
-ANNOTATED_PATH = "data/annotated_final.xlsx"  # used only for training beforehand
-MODEL_PATH = "models/sequence_classifier"     # <-- must exist after training
+    # =========================================================
+    # 1. LOAD DATA
+    # =========================================================
+    print("📥 Loading data...")
+    df = pd.read_excel(input_path)
 
-OUTPUT_PATH = os.path.join(BASE_DIR, "nlp_results.xlsx")
+    df = df.sample(n=min(sample_size, len(df)), random_state=42).reset_index(drop=True)
 
+    # =========================================================
+    # 2. CLASSIFICATION
+    # =========================================================
+    print("🔍 Running classification...")
 
-# =========================================================
-# 1. LOAD DATA
-# =========================================================
-df = pd.read_excel(INPUT_PATH)
-df = df.sample(n=min(200, len(df)), random_state=42).reset_index(drop=True)
+    df["is_missing"] = predict(model_path, df["text_clean"].tolist())
 
-df["text_clean"] = df["text"].fillna("").astype(str)
+    print(f"Found {df['is_missing'].sum()} potential cases")
 
+    # =========================================================
+    # 3. NER (FIXED + SAFE)
+    # =========================================================
+    if run_ner:
+        try:
+            print("🧠 Loading NER model...")
+            tokenizer, model, id2label = load_ner_model()
 
-# =========================================================
-# 2. CLASSIFICATION (TRANSFORMER)
-# =========================================================
-print("🔍 Running sequence classification...")
+            print("🧠 Running NER...")
 
-preds = predict(MODEL_PATH, df["text_clean"].tolist())
+            df_missing = df[df["is_missing"] == 1].copy()
 
-df["is_missing"] = preds
-df["missing_prob"] = np.nan  # optional (not returned in current model)
+            if len(df_missing) > 0:
+                df_missing = apply_ner_to_df(
+                    df_missing,
+                    tokenizer=tokenizer,
+                    model=model,
+                    id2label=id2label,
+                    text_col="text_clean"
+                )
 
+                # merge back safely
+                for col in ["names", "location", "dates"]:
+                    df.loc[df_missing.index, col] = df_missing[col]
+            else:
+                print("⚠️ No missing cases found — skipping NER")
 
-# =========================================================
-# 3. FILTER RELEVANT CASES
-# =========================================================
-df_cases = df[df["is_missing"] == 1].copy().reset_index(drop=True)
+        except Exception as e:
+            print(f"⚠️ NER failed, continuing pipeline: {e}")
 
-if len(df_cases) == 0:
-    print("⚠️ No relevant cases found.")
-    
+    # =========================================================
+    # 4. TRANSLATION
+    # =========================================================
+    #if run_translation:
+     #   try:
+      #      print("🌍 Translating...")
+       #     df["translation_en"] = translate_texts(df["text_clean"].tolist())
+        #except Exception as e:
+         #   print(f"⚠️ Translation failed: {e}")
+          #  df["translation_en"] = ""
 
-# =========================================================
-# 4. NER (from src)
-# =========================================================
-print("🧠 Running NER...")
+    # =========================================================
+    # 5. CLUSTERING
+    # =========================================================
+    #if run_clustering:
+     #   try:
+      #      print("🧩 Running semantic clustering...")
+       #     df["cluster_id"] = cluster_texts(df["text_clean"].tolist())
+        #except Exception as e:
+         #   print(f"⚠️ Clustering failed: {e}")
+          #  df["cluster_id"] = -1
 
-ner_results = extract_entities(df_cases["text_clean"].tolist())
+    # =========================================================
+    # 6. SAVE RESULTS
+    # =========================================================
+    print("💾 Saving results...")
 
-def parse_ner(entities):
-    names, locs, dates = [], [], []
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    for e in entities:
-        if e["entity_group"] == "PER":
-            names.append(e["word"])
-        elif e["entity_group"] == "LOC":
-            locs.append(e["word"])
-        elif e["entity_group"] == "DATE":
-            dates.append(e["word"])
+    with pd.ExcelWriter(output_path) as writer:
+        df.to_excel(writer, sheet_name="all_predictions", index=False)
 
-    return pd.Series([
-        "; ".join(names),
-        "; ".join(locs),
-        "; ".join(dates)
-    ])
+    print("✅ Pipeline completed successfully")
+    print(f"📁 Saved to: {output_path}")
 
-df_cases[["names", "locations", "dates"]] = pd.DataFrame(
-    [parse_ner(e) for e in ner_results]
-)
-
-
-# =========================================================
-# 5. TRANSLATION
-# =========================================================
-print("🌍 Translating...")
-
-df_cases["translation_en"] = translate_texts(
-    df_cases["text_clean"].tolist()
-)
-
-
-# =========================================================
-# 6. ENTITY MATCHING (FUZZY)
-# =========================================================
-print("🔗 Matching similar cases...")
-
-def match_score(a, b):
-    return fuzz.token_set_ratio(str(a), str(b))
-
-matches = []
-for i in range(len(df_cases)):
-    for j in range(i + 1, len(df_cases)):
-        score = match_score(df_cases.loc[i, "text_clean"],
-                            df_cases.loc[j, "text_clean"])
-        if score > 85:
-            matches.append((i, j, score))
-
-df_matches = pd.DataFrame(matches, columns=["i", "j", "similarity"])
+    return df
 
 
-# =========================================================
-# 7. CLUSTERING (EMBEDDINGS)
-# =========================================================
-print("🧩 Clustering...")
+if __name__ == "__main__":
 
-if len(df_cases) > 1:
-    clusters = cluster_texts(df_cases["text_clean"].tolist(), n_clusters=5)
-    df_cases["cluster_id"] = clusters
-else:
-    df_cases["cluster_id"] = -1
-
-
-# =========================================================
-# 8. SAVE RESULTS
-# =========================================================
-print("💾 Saving results...")
-
-with pd.ExcelWriter(OUTPUT_PATH) as writer:
-    df.to_excel(writer, sheet_name="all_predictions", index=False)
-    df_cases.to_excel(writer, sheet_name="missing_cases", index=False)
-    df_matches.to_excel(writer, sheet_name="entity_matches", index=False)
-
-print("✅ NLP pipeline completed successfully")
-print(f"Saved to: {OUTPUT_PATH}")
+    run_nlp_pipeline(
+        input_path="data/nlp/telegram_sample.xlsx",
+        output_path="outputs/nlp_results.xlsx",
+        model_path="./model_output",
+        sample_size=50,
+        run_ner=True,
+        run_translation=True,
+        run_clustering=True
+    )

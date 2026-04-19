@@ -1,33 +1,41 @@
-import pandas as pd
 from sentence_transformers import SentenceTransformer
-from sklearn.cluster import KMeans
-
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-
-
-def load_data(path):
-    df = pd.read_csv(path)
-    return df["text"].tolist()
+from sklearn.cluster import DBSCAN
+import numpy as np
 
 
-def embed_texts(texts):
-    model = SentenceTransformer(MODEL_NAME)
-    embeddings = model.encode(texts, show_progress_bar=True)
-    return embeddings
+# Load model once (IMPORTANT for performance)
+_model = SentenceTransformer(
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+)
 
 
-def cluster_texts(texts, n_clusters=5):
-    embeddings = embed_texts(texts)
+def cluster_texts(texts, eps=0.35, min_samples=2):
+    """
+    Semantic clustering using embeddings + DBSCAN.
+    Returns cluster labels for each text.
+    """
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    labels = kmeans.fit_predict(embeddings)
+    if len(texts) == 0:
+        return []
 
-    return labels
+    # ---------------------------------------------------------
+    # 1. EMBEDDINGS
+    # ---------------------------------------------------------
+    embeddings = _model.encode(
+        texts,
+        show_progress_bar=False,
+        normalize_embeddings=True
+    )
 
+    # ---------------------------------------------------------
+    # 2. DBSCAN CLUSTERING
+    # ---------------------------------------------------------
+    clustering = DBSCAN(
+        eps=eps,
+        min_samples=min_samples,
+        metric="cosine"
+    )
 
-def save_clusters(texts, labels, output_path):
-    df = pd.DataFrame({
-        "text": texts,
-        "cluster": labels
-    })
-    df.to_csv(output_path, index=False)
+    labels = clustering.fit_predict(embeddings)
+
+    return labels.tolist()

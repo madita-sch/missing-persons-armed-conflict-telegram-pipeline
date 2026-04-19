@@ -1,0 +1,19 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|##########| 199/199 [00:00<00:00, 19677.18it/s]
+[1mBertForTokenClassification LOAD REPORT[0m from: CAMeL-Lab/bert-base-arabic-camelbert-msa-ner
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+bert.pooler.dense.weight     | UNEXPECTED |  | 
+bert.pooler.dense.bias       | UNEXPECTED |  | 
+bert.embeddings.position_ids | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+Traceback (most recent call last):
+  File "c:\Users\Lenovo\missing-persons-armed-conflict-telegram-pipeline\tmp_ner_apply_test.py", line 10, in <module>
+    print(result[['text_clean', 'ner_extracted', 'names', 'location', 'dates']])
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Lenovo\AppData\Local\Programs\Python\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 68-70: character maps to <undefined>
