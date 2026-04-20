@@ -2,6 +2,8 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import pandas as pd
+import re
+from difflib import SequenceMatcher
 
 # =========================================================
 # LOAD MODEL ONCE
@@ -10,75 +12,116 @@ _model = SentenceTransformer(
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
 
+# =========================================================
+# NAME NORMALIZATION
+# =========================================================
+def normalize_name(name):
+    name = str(name).lower().strip()
+    name = re.sub(r"[^\w\s]", "", name)
+    name = re.sub(r"\s+", " ", name)
+    return name
 
 # =========================================================
-# BUILD COMPOSITE TEXT (IMPROVED + CLEANER WEIGHTING)
+# BUILD ENTITY MAP (GLOBAL ENTITY MATCHING)
+# =========================================================
+def build_entity_map(names, threshold=0.85):
+    canonical = []
+    entity_map = {}
+    entity_id_map = {}
+
+    id_counter = 0
+
+    for name in names:
+        norm = normalize_name(name)
+
+        if not norm:
+            entity_map[name] = None
+            continue
+
+        matched_id = None
+
+        for canon in canonical:
+            sim = SequenceMatcher(None, norm, canon).ratio()
+            if sim >= threshold:
+                matched_id = entity_id_map[canon]
+                break
+
+        if matched_id is None:
+            canonical.append(norm)
+
+            matched_id = f"entity_{id_counter:04d}"
+            entity_id_map[norm] = matched_id
+            id_counter += 1
+
+        entity_map[name] = matched_id
+
+    return entity_map
+
+# =========================================================
+# BUILD COMPOSITE TEXT (USING ENTITY ID)
 # =========================================================
 def build_weighted_text(row):
-    """
-    Combines:
-    - text_clean (base meaning)
-    - names (very strong signal)
-    - location (strong signal)
-    - dates (weak temporal signal)
-    """
-
     text = str(row.get("text_clean", "")).strip()
-    name = str(row.get("names", "")).strip()
+    entity = str(row.get("entity_id", "")).strip()
     location = str(row.get("location", "")).strip()
     date = str(row.get("dates", "")).strip()
 
     parts = []
 
     NOISE_PHRASES = [
-    "كما وصلني",
-    "كما وصلنا",
-    "مناشدة",
-    "من لديه معلومات",
-    "يرجى التواصل",
-    "الرجاء النشر"
+        "كما وصلني",
+        "كما وصلنا",
+        "مناشدة",
+        "من لديه معلومات",
+        "يرجى التواصل",
+        "الرجاء النشر"
     ]
 
     for phrase in NOISE_PHRASES:
         text = text.replace(phrase, "")
-    # Strong semantic anchors
-    if name:
-        parts.append(f"{name} {name} {name}")  # triple weight
 
+    # Strong anchor: entity
+    if entity:
+        parts.append(f"{entity} {entity} {entity}")
+
+    # Medium anchor: location
     if location:
-        parts.append(f"{location} {location}")  # double weight
+        parts.append(f"{location} {location}")
 
-    # weak temporal signal
+    # Weak signal: date
     if date:
         parts.append(date)
 
-    # base content
+    # Base text
     if text:
         parts.append(text)
 
     return " ".join(parts).strip()
 
-
 # =========================================================
-# MAIN CLUSTERING FUNCTION (SIMILARITY-BASED LIKE YOUR TF-IDF VERSION)
+# MAIN CLUSTERING FUNCTION
 # =========================================================
 def cluster_cases(df, threshold=0.65):
-    """
-    Clusters cases using cosine similarity over SBERT embeddings.
-    Uses explicit threshold grouping (like TF-IDF approach).
-    """
 
     if df.empty:
         df["cluster_id"] = []
         return df
 
     # -----------------------------------------------------
-    # 1. BUILD INPUT TEXTS
+    # 0. ENTITY MATCHING (NEW STEP)
+    # -----------------------------------------------------
+    names = df["names"].fillna("").astype(str).tolist()
+    entity_map = build_entity_map(names)
+
+    df["entity_id"] = df["names"].map(entity_map)
+
+    # -----------------------------------------------------
+    # 1. BUILD TEXTS
     # -----------------------------------------------------
     texts = df.apply(build_weighted_text, axis=1).tolist()
 
     # -----------------------------------------------------
-    # 2. EMBEDDINGS (normalized => cosine-ready)
+    # 2. EMBEDDINGS
     # -----------------------------------------------------
     embeddings = _model.encode(
         texts,
@@ -87,38 +130,29 @@ def cluster_cases(df, threshold=0.65):
     )
 
     # -----------------------------------------------------
-    # 3. COSINE SIMILARITY MATRIX
+    # 3. COSINE SIMILARITY
     # -----------------------------------------------------
     similarity_matrix = cosine_similarity(embeddings)
 
     # -----------------------------------------------------
-    # 3.5 NAME-BASED PENALTY (FIXED + ROBUST VERSION)
+    # 4. ENTITY-BASED CONSTRAINT (REPLACES OLD PENALTY)
     # -----------------------------------------------------
-    from difflib import SequenceMatcher
-
-    def name_similarity(a, b):
-        return SequenceMatcher(None, a, b).ratio()
-
-
-    names = df["names"].fillna("").astype(str).tolist()
+    entity_ids = df["entity_id"].tolist()
     n = len(df)
 
     for i in range(n):
         for j in range(i + 1, n):
 
-            name_i = names[i].strip()
-            name_j = names[j].strip()
+            e1 = entity_ids[i]
+            e2 = entity_ids[j]
 
-            # skip empty names
-            if not name_i or not name_j:
-                continue
-
-            # if names are sufficiently different → penalize similarity
-            if name_similarity(name_i, name_j) < 0.75:
-                similarity_matrix[i, j] *= (0.3 + 0.7 * name_similarity(name_i, name_j))
+            if e1 and e2 and e1 != e2:
+                # strong penalty if clearly different people
+                similarity_matrix[i, j] *= 0.2
                 similarity_matrix[j, i] = similarity_matrix[i, j]
+
     # -----------------------------------------------------
-    # 4. THRESHOLD-BASED CLUSTERING (LIKE YOUR REFERENCE)
+    # 5. THRESHOLD CLUSTERING
     # -----------------------------------------------------
     cluster_ids = [-1] * n
     current_cluster = 0

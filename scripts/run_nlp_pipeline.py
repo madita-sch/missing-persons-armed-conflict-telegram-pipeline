@@ -3,14 +3,15 @@ import pandas as pd
 
 from src.nlp.classification import predict
 from src.nlp.ner import apply_ner_to_df, load_ner_model
-from src.nlp.translation import translate_texts
-from src.nlp.clustering import cluster_cases
+#from src.nlp.translation import translate_texts
+from src.nlp.clustering import cluster_cases, build_entity_map
+from src.nlp.anonymization import anonymize_dataframe
 
 def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
     output_path="outputs/nlp_results.xlsx",
     model_path="./model_output",
-    sample_size=10,
+    sample_size=100,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -59,34 +60,75 @@ def run_nlp_pipeline(
     # -------------------------------------------------------
     if run_translation:
         try:
-            print("🌐 Translating AFTER NER (selected fields only)...")
+            print("🌐 Translating AFTER NER (batched)...")
 
-            df_missing = df[df["is_missing"] == 1]
+            df_missing = df[df["is_missing"] == 1].copy()
 
             if len(df_missing) > 0:
-                df.loc[df_missing.index, "text_en"] = translate_texts(
-                    df_missing["text_clean"].tolist()
+                # Ensure columns exist
+                for col in ["names", "location", "dates"]:
+                    if col not in df_missing.columns:
+                        df_missing[col] = ""
+                    else:
+                        df_missing[col] = df_missing[col].fillna("")
+
+                # --- 1. Combine all fields into ONE list ---
+                combined_texts = (
+                    df_missing["text_clean"].tolist() +
+                    df_missing["names"].tolist() +
+                    df_missing["location"].tolist() +
+                    df_missing["dates"].tolist()
                 )
 
-                df.loc[df_missing.index, "names_en"] = translate_texts(
-                    df_missing["names"].fillna("").tolist()
-                )
+                # --- 2. Translate ONCE ---
+                translated_all = translate_texts(combined_texts, batch_size=8)
 
-                df.loc[df_missing.index, "location_en"] = translate_texts(
-                    df_missing["location"].fillna("").tolist()
-                )
+                # --- 3. Split back ---
+                n = len(df_missing)
 
-                df.loc[df_missing.index, "dates_en"] = translate_texts(
-                    df_missing["dates"].fillna("").tolist()
-                )
+                text_en = translated_all[0:n]
+                names_en = translated_all[n:2*n]
+                location_en = translated_all[2*n:3*n]
+                dates_en = translated_all[3*n:4*n]
 
-                print(f"✅ Translated {len(df_missing)} missing cases")
+                # --- 4. Assign back ---
+                df.loc[df_missing.index, "text_en"] = text_en
+                df.loc[df_missing.index, "names_en"] = names_en
+                df.loc[df_missing.index, "location_en"] = location_en
+                df.loc[df_missing.index, "dates_en"] = dates_en
+
+                print(f"✅ Translated {len(df_missing)} missing cases (batched)")
 
             else:
                 print("⚠️ No missing cases to translate")
 
         except Exception as e:
             print(f"⚠️ Translation failed: {e}")
+    
+        # -------------------------------------------------------
+        # ENTITY MATCHING (NEW STEP - CRITICAL)
+        # -------------------------------------------------------
+        print("🧩 Running entity matching...")
+
+        try:
+            # Use translated names if available, fallback to raw
+            name_source = df["names_en"] if "names_en" in df.columns else df["names"]
+
+            name_source = name_source.fillna("").astype(str).tolist()
+
+            entity_map = build_entity_map(name_source)
+
+            df["entity_id"] = pd.Series(name_source).map(entity_map)
+
+            # fallback safety
+            df["entity_id"] = df["entity_id"].fillna("")
+
+            print(f"✅ Entity matching completed ({len(entity_map)} unique entities)")
+
+        except Exception as e:
+            print(f"⚠️ Entity matching failed: {e}")
+            df["entity_id"] = ""
+    
     # -------------------------------------------------------
     # CLUSTERING
     # -------------------------------------------------------
@@ -109,6 +151,24 @@ def run_nlp_pipeline(
             df["cluster_id"] = -1
 
     # -------------------------------------------------------
+    # ANONYMIZATION LAYER (NEW)
+    # -------------------------------------------------------
+    try:
+        print("🕶️ Running anonymization layer...")
+
+        df, anon_map = anonymize_dataframe(
+            df,
+            entity_col="entity_id",
+            text_col="text_clean",
+            names_col="names"
+        )
+
+        print(f"✅ Anonymization completed ({len(anon_map)} entities masked)")
+
+    except Exception as e:
+        print(f"⚠️ Anonymization failed: {e}")
+    
+    # -------------------------------------------------------
     # SAVE OUTPUT
     # -------------------------------------------------------
     print("💾 Saving results...")
@@ -128,7 +188,7 @@ if __name__ == "__main__":
         input_path="data/nlp/telegram_clean.xlsx",
         output_path="outputs/nlp_results.xlsx",
         model_path="./model_output",
-        sample_size=10,
+        sample_size=100,
         run_ner=True,
         run_translation=True,
         run_clustering=True,
