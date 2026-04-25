@@ -2,8 +2,8 @@ import os
 import pandas as pd
 
 from src.nlp.classification import predict
-from src.nlp.ner import apply_ner_to_df, load_ner_model
-#from src.nlp.translation import translate_texts
+from src.nlp.ner4 import apply_ner_to_df
+from src.nlp.translation3 import apply_translation_to_df
 from src.nlp.clustering import cluster_cases, build_entity_map
 from src.nlp.anonymization import anonymize_dataframe
 
@@ -11,7 +11,7 @@ def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
     output_path="outputs/nlp_results.xlsx",
     model_path="./model_output",
-    sample_size=100,
+    sample_size=50,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -30,9 +30,6 @@ def run_nlp_pipeline(
     # -------------------------------------------------------
     if run_ner:
         try:
-            print("🧠 Loading NER model...")
-            tokenizer, model, ner_pipeline = load_ner_model()
-
             print("🧠 Running NER...")
 
             df_missing = df[df["is_missing"] == 1]
@@ -40,7 +37,7 @@ def run_nlp_pipeline(
             if len(df_missing) > 0:
                 df_missing = apply_ner_to_df(df_missing, text_col="text_clean")
 
-                for col in ["names", "location", "dates"]:
+                for col in ["names", "location", "dates", "age"]:
                     df.loc[df_missing.index, col] = df_missing[col]
             else:
                 print("⚠️ No missing cases found — skipping NER")
@@ -49,7 +46,7 @@ def run_nlp_pipeline(
             print(f"⚠️ NER failed, continuing pipeline: {e}")
 
     # Ensure columns exist
-    for col in ["names", "location", "dates"]:
+    for col in ["names", "location", "dates", "age"]:
         if col not in df.columns:
             df[col] = ""
         else:
@@ -58,51 +55,31 @@ def run_nlp_pipeline(
     # -------------------------------------------------------
     # TRANSLATION (ONLY AFTER NER)
     # -------------------------------------------------------
+
+    # replace the entire translation block with this:
     if run_translation:
         try:
-            print("🌐 Translating AFTER NER (batched)...")
-
+            print("🌐 Translating missing cases...")
             df_missing = df[df["is_missing"] == 1].copy()
 
             if len(df_missing) > 0:
-                # Ensure columns exist
-                for col in ["names", "location", "dates"]:
-                    if col not in df_missing.columns:
-                        df_missing[col] = ""
-                    else:
-                        df_missing[col] = df_missing[col].fillna("")
-
-                # --- 1. Combine all fields into ONE list ---
-                combined_texts = (
-                    df_missing["text_clean"].tolist() +
-                    df_missing["names"].tolist() +
-                    df_missing["location"].tolist() +
-                    df_missing["dates"].tolist()
+                df_missing = apply_translation_to_df(
+                    df_missing,
+                    text_col="text_clean",
+                    extra_cols=["names", "location", "dates"],
                 )
+                # copy translated columns back to main df
+                for col in ["text_clean_en", "names_en", "location_en", "dates_en"]:
+                    if col in df_missing.columns:
+                        df.loc[df_missing.index, col] = df_missing[col]
 
-                # --- 2. Translate ONCE ---
-                translated_all = translate_texts(combined_texts, batch_size=8)
-
-                # --- 3. Split back ---
-                n = len(df_missing)
-
-                text_en = translated_all[0:n]
-                names_en = translated_all[n:2*n]
-                location_en = translated_all[2*n:3*n]
-                dates_en = translated_all[3*n:4*n]
-
-                # --- 4. Assign back ---
-                df.loc[df_missing.index, "text_en"] = text_en
-                df.loc[df_missing.index, "names_en"] = names_en
-                df.loc[df_missing.index, "location_en"] = location_en
-                df.loc[df_missing.index, "dates_en"] = dates_en
-
-                print(f"✅ Translated {len(df_missing)} missing cases (batched)")
-
+                print(f"✅ Translated {len(df_missing)} missing cases")
             else:
                 print("⚠️ No missing cases to translate")
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"⚠️ Translation failed: {e}")
     
         # -------------------------------------------------------
@@ -160,7 +137,6 @@ def run_nlp_pipeline(
             df,
             entity_col="entity_id",
             text_col="text_clean",
-            names_col="names"
         )
 
         print(f"✅ Anonymization completed ({len(anon_map)} entities masked)")
@@ -188,8 +164,9 @@ if __name__ == "__main__":
         input_path="data/nlp/telegram_clean.xlsx",
         output_path="outputs/nlp_results.xlsx",
         model_path="./model_output",
-        sample_size=100,
+        sample_size=50,
         run_ner=True,
         run_translation=True,
         run_clustering=True,
     )
+

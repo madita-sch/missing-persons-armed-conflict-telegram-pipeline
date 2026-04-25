@@ -1,77 +1,94 @@
-import pandas as pd
 import re
 
 # =========================================================
-# BUILD ANONYMIZATION MAP
+# NORMALIZATION
 # =========================================================
-def build_anonymization_map(entity_ids):
-    """
-    Converts entity_ids into anonymous PERSON_XXX labels.
-    This is a privacy layer (NOT entity resolution).
-    """
-    unique_entities = sorted(set([e for e in entity_ids if e]))
-
-    anon_map = {}
-
-    for i, ent in enumerate(unique_entities):
-        anon_map[ent] = f"PERSON_{i+1:03d}"
-
-    return anon_map
+def normalize(text):
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"[إأآا]", "ا", text)
+    text = re.sub(r"ى", "ي", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
 # =========================================================
-# ANONYMIZE TEXT
+# GLOBAL REGISTRY (IMPORTANT)
 # =========================================================
-import re
+class EntityRegistry:
+    def __init__(self):
+        self.name_to_person = {}
+        self.person_counter = 1
 
-def anonymize_text(text, name_to_anon):
-    """
-    Replace raw names in text with PERSON_xxx labels.
-    Works on actual surface names, not entity_id.
-    """
+    def get_person(self, name):
+        name = normalize(name)
 
+        if name in self.name_to_person:
+            return self.name_to_person[name]
+
+        pid = f"PERSON_{self.person_counter:03d}"
+        self.person_counter += 1
+        self.name_to_person[name] = pid
+        return pid
+
+
+# =========================================================
+# MATCH NAME INSIDE TEXT SAFELY
+# =========================================================
+def replace_names_in_text(text, names, registry):
     if not isinstance(text, str):
         return text
 
-    for name, anon in name_to_anon.items():
+    text = normalize(text)
+
+    if not isinstance(names, str):
+        return text
+
+    # split multi-names safely
+    candidates = re.split(r"[;،,]", names)
+
+    # longest first = prevents partial overwrites
+    candidates = sorted(
+        [normalize(n) for n in candidates if len(n.split()) >= 2],
+        key=len,
+        reverse=True
+    )
+
+    for name in candidates:
         if not name:
             continue
 
-        pattern = re.escape(name)
+        person = registry.get_person(name)
 
-        # replace all occurrences
-        text = re.sub(pattern, anon, text)
+        # strict word-boundary match (prevents false matches)
+        pattern = r"(?<!\w)" + re.escape(name) + r"(?!\w)"
+        text = re.sub(pattern, person, text)
 
     return text
 
+
 # =========================================================
-# APPLY TO DATAFRAME
+# MAIN FUNCTION
 # =========================================================
-def anonymize_dataframe(df, entity_col="entity_id", text_col="text_clean", names_col="names"):
+def anonymize_dataframe(df, text_col="text_clean", names_col="names"):
 
-    entity_ids = df[entity_col].fillna("").astype(str).tolist()
+    registry = EntityRegistry()
 
-    # build PERSON mapping
-    anon_map = build_anonymization_map(entity_ids)
+    anonymized_texts = []
 
-    # reverse: entity_id → PERSON_xxx
-    df["anon_id"] = df[entity_col].map(anon_map)
+    for _, row in df.iterrows():
+        text = row[text_col]
+        names = row.get(names_col, "")
 
-    # -----------------------------------------------------
-    # CRITICAL FIX: build NAME → PERSON mapping
-    # -----------------------------------------------------
-    name_to_anon = {}
+        new_text = replace_names_in_text(text, names, registry)
+        anonymized_texts.append(new_text)
 
-    for name, eid in zip(df[names_col], df[entity_col]):
-        if isinstance(name, str) and eid in anon_map:
-            name_to_anon[name] = anon_map[eid]
+    df[text_col + "_anon"] = anonymized_texts
 
-    # apply to text
-    df[text_col + "_anon"] = df[text_col].apply(
-        lambda x: anonymize_text(x, name_to_anon)
-    )
+    # export mapping (VERY IMPORTANT for traceability)
+    mapping_df = pd.DataFrame([
+        {"name": k, "person_id": v}
+        for k, v in registry.name_to_person.items()
+    ])
 
-    # apply to names column
-    df[names_col + "_anon"] = df[entity_col].map(anon_map)
-
-    return df, anon_map
+    return df, mapping_df
