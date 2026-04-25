@@ -2,16 +2,16 @@ import os
 import pandas as pd
 
 from src.nlp.classification import predict
-from src.nlp.ner4 import apply_ner_to_df
-from src.nlp.translation3 import apply_translation_to_df
-from src.nlp.clustering import cluster_cases, build_entity_map
+from src.nlp.ner import apply_ner_to_df
+#from src.nlp.translation import apply_translation_to_df
+from src.nlp.clustering import cluster_by_name
 from src.nlp.anonymization import anonymize_dataframe
 
 def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
     output_path="outputs/nlp_results.xlsx",
     model_path="./model_output",
-    sample_size=50,
+    sample_size=300,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -107,18 +107,32 @@ def run_nlp_pipeline(
             df["entity_id"] = ""
     
     # -------------------------------------------------------
-    # CLUSTERING
+    # CLUSTERING (NAME-FIRST SYSTEM)
     # -------------------------------------------------------
     if run_clustering:
         try:
             print("🧩 Running clustering (missing cases only)...")
 
-            df_missing = df[df["is_missing"] == 1]
+            # ensure column exists
+            if "cluster_id" not in df.columns:
+                df["cluster_id"] = -1
 
-            if len(df_missing) > 0:
-                df_missing = cluster_cases(df_missing)
+            # isolate missing cases
+            df_missing = df.loc[df["is_missing"] == 1].copy()
+
+            if not df_missing.empty:
+
+                # ✅ USE NAME-BASED CLUSTERING FUNCTION
+                df_missing = cluster_by_name(df_missing)
+
+                # assign back safely
                 df.loc[df_missing.index, "cluster_id"] = df_missing["cluster_id"]
-                print(f"Clusters found: {df_missing['cluster_id'].nunique()}")
+
+                # count clusters (excluding optional noise -1)
+                n_clusters = df_missing["cluster_id"].nunique()
+
+                print(f"Clusters found: {n_clusters}")
+
             else:
                 print("⚠️ No missing cases to cluster")
                 df["cluster_id"] = -1
@@ -164,7 +178,7 @@ if __name__ == "__main__":
         input_path="data/nlp/telegram_clean.xlsx",
         output_path="outputs/nlp_results.xlsx",
         model_path="./model_output",
-        sample_size=50,
+        sample_size=300,
         run_ner=True,
         run_translation=True,
         run_clustering=True,
