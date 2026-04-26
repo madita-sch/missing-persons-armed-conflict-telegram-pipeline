@@ -1,3 +1,4 @@
+# Import libraries
 import os
 import pandas as pd
 
@@ -5,7 +6,7 @@ from src.nlp.classification import predict
 from src.nlp.ner import apply_ner_to_df
 from src.nlp.translation import apply_translation_to_df
 from src.nlp.clustering import normalize, build_graph, extract_clusters
-from src.nlp.anonymization import anonymize_dataframe
+from src.nlp.pseudonymization import anonymize_dataframe
 
 def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
@@ -16,21 +17,17 @@ def run_nlp_pipeline(
     run_translation=True,
     run_clustering=True,
 ):
-    print("📥 Loading data...")
+    # Load preprocessed Telegram dataset
     df = pd.read_excel(input_path)
     df = df.sample(n=min(sample_size, len(df)), random_state=42).reset_index(drop=True)
 
-    print("🔍 Running classification...")
+    # Sequence classification to find missing cases using the predict function
     df["is_missing"] = predict(model_path, df["text_clean"].tolist())
     print(f"Found {df['is_missing'].sum()} potential cases")
 
-
-    # -------------------------------------------------------
     # NER
-    # -------------------------------------------------------
     if run_ner:
         try:
-            print("🧠 Running NER...")
 
             df_missing = df[df["is_missing"] == 1]
 
@@ -40,26 +37,22 @@ def run_nlp_pipeline(
                 for col in ["names", "location", "dates", "age"]:
                     df.loc[df_missing.index, col] = df_missing[col]
             else:
-                print("⚠️ No missing cases found — skipping NER")
+                print("No missing cases found")
 
         except Exception as e:
-            print(f"⚠️ NER failed, continuing pipeline: {e}")
+            print(f"NER failed, continuing pipeline: {e}")
 
-    # Ensure columns exist
+    # Ensure columns produced by NER exist
     for col in ["names", "location", "dates", "age"]:
         if col not in df.columns:
             df[col] = ""
         else:
             df[col] = df[col].fillna("")
 
-    # -------------------------------------------------------
-    # TRANSLATION (ONLY AFTER NER)
-    # -------------------------------------------------------
-
-    # replace the entire translation block with this:
+    # Translation
     if run_translation:
         try:
-            print("🌐 Translating missing cases...")
+            # Only translate missing cases
             df_missing = df[df["is_missing"] == 1].copy()
 
             if len(df_missing) > 0:
@@ -73,26 +66,23 @@ def run_nlp_pipeline(
                     if col in df_missing.columns:
                         df.loc[df_missing.index, col] = df_missing[col]
 
-                print(f"✅ Translated {len(df_missing)} missing cases")
+                print(f"Translated {len(df_missing)} missing cases")
             else:
-                print("⚠️ No missing cases to translate")
+                print("No missing cases to translate")
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            print(f"⚠️ Translation failed: {e}")
+            print(f"Translation failed: {e}")
     
-    # -------------------------------------------------------
-    # CLUSTERING (NAME-FIRST SYSTEM)
-    # -------------------------------------------------------
+    # Clustering
     if run_clustering:
         try:
-            print("🧩 Running clustering (missing cases only)...")
             #Preprocessing for clustering
             df["clean"] = df["names"].fillna("").apply(normalize)
             df["cluster_id"] = -1
 
-            # ONLY cluster missing cases
+            # Only cluster missing cases
             df_missing = df[df["is_missing"] == 1].copy()
 
             if not df_missing.empty:
@@ -106,18 +96,15 @@ def run_nlp_pipeline(
                 print(f"Clusters found: {len(set(clusters.values()))}")
 
             else:
-                print("⚠️ No missing cases to cluster")
+                print("No missing cases to cluster")
 
         except Exception as e:
-            print(f"⚠️ Clustering failed: {e}")
+            print(f"Clustering failed: {e}")
             df["cluster_id"] = -1
 
-    # -------------------------------------------------------
-    # ANONYMIZATION LAYER (NEW)
-    # -------------------------------------------------------
+    # Pseudonymization
     try:
-        print("🕶️ Running anonymization layer...")
-
+        # Only pseudonymize missing cases
         df_missing = df[df["is_missing"] == 1].copy()
 
         df_missing, anon_map = anonymize_dataframe(
@@ -129,22 +116,19 @@ def run_nlp_pipeline(
 
         # merge back results
         df.loc[df_missing.index, "text_clean_anon"] = df_missing["text_clean_anon"]
-        print(f"✅ Anonymization completed ({len(anon_map)} entities masked)")
+        print(f"Pseudonymization completed ({len(anon_map)} entities masked)")
 
     except Exception as e:
-        print(f"⚠️ Anonymization failed: {e}")
+        print(f"Pseudonymization failed: {e}")
     
-    # -------------------------------------------------------
-    # SAVE OUTPUT
-    # -------------------------------------------------------
-    print("💾 Saving results...")
+    # Save output
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     with pd.ExcelWriter(output_path) as writer:
         df.to_excel(writer, sheet_name="all_predictions", index=False)
 
-    print("✅ Pipeline V2 completed successfully")
-    print(f"📁 Saved to: {output_path}")
+    print("NLP Pipeline completed successfully")
+    print(f"Saved to: {output_path}")
 
     return df
 
