@@ -1,57 +1,105 @@
-import pandas as pd
+# =====================================================
+# clustering.py (SRC MODULE - NO EXECUTION)
+# =====================================================
+
 import re
+import networkx as nx
 from difflib import SequenceMatcher
 
 # -----------------------------------------------------
-# 1. NORMALIZE NAME
+# NORMALIZATION
 # -----------------------------------------------------
-def normalize_name(name):
+def normalize(name):
     name = str(name).lower().strip()
+
+    name = name.replace("ابو ", " ")
+    name = name.replace("أبو ", " ")
+
     name = re.sub(r"[^\w\s]", "", name)
     name = re.sub(r"\s+", " ", name)
-    return name
+
+    return name.strip()
+
 
 # -----------------------------------------------------
-# 2. NAME-BASED CLUSTERING (MAIN LOGIC)
+# TOKENIZATION
 # -----------------------------------------------------
-def cluster_by_name(df, threshold=0.88):
+def tokens(name):
+    return set(name.split())
 
-    df = df.copy()
 
-    names = df["names"].fillna("").astype(str).tolist()
+# -----------------------------------------------------
+# SIMILARITY COMPONENTS
+# -----------------------------------------------------
+def jaccard(a, b):
+    A, B = tokens(a), tokens(b)
+    if not A or not B:
+        return 0
+    return len(A & B) / len(A | B)
 
-    normalized = [normalize_name(n) for n in names]
 
-    clusters = [-1] * len(df)
-    cluster_id = 0
+def dice(a, b):
+    A, B = tokens(a), tokens(b)
+    if not A or not B:
+        return 0
+    return (2 * len(A & B)) / (len(A) + len(B))
 
-    for i in range(len(df)):
 
-        if clusters[i] != -1:
-            continue
+def edit_sim(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
-        clusters[i] = cluster_id
-        name_i = normalized[i]
 
-        for j in range(i + 1, len(df)):
+def rule_boost(a, b):
+    A, B = tokens(a), tokens(b)
+    return 0.2 if len(A & B) >= 2 else 0.0
 
-            if clusters[j] != -1:
+
+# -----------------------------------------------------
+# FINAL SIMILARITY FUNCTION
+# -----------------------------------------------------
+def similarity(a, b):
+    return (
+        0.3 * jaccard(a, b) +
+        0.3 * dice(a, b) +
+        0.3 * edit_sim(a, b) +
+        0.1 * rule_boost(a, b)
+    )
+
+
+# -----------------------------------------------------
+# GRAPH CONSTRUCTION
+# -----------------------------------------------------
+def build_graph(df, threshold=0.60, text_col="clean"):
+
+    G = nx.Graph()
+
+    for i in df.index:
+        G.add_node(i)
+
+    for i in df.index:
+        for j in df.index:
+            if j <= i:
                 continue
 
-            name_j = normalized[j]
-
-            # skip empty names
-            if not name_i or not name_j:
-                continue
-
-            # similarity between names
-            sim = SequenceMatcher(None, name_i, name_j).ratio()
+            sim = similarity(df.loc[i, text_col], df.loc[j, text_col])
 
             if sim >= threshold:
-                clusters[j] = cluster_id
+                G.add_edge(i, j)
 
+    return G
+
+
+# -----------------------------------------------------
+# CLUSTER EXTRACTION
+# -----------------------------------------------------
+def extract_clusters(G):
+
+    clusters = {}
+    cluster_id = 0
+
+    for component in nx.connected_components(G):
+        for node in component:
+            clusters[node] = cluster_id
         cluster_id += 1
 
-    df["cluster_id"] = clusters
-
-    return df
+    return clusters

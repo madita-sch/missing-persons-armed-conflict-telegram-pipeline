@@ -3,15 +3,15 @@ import pandas as pd
 
 from src.nlp.classification import predict
 from src.nlp.ner import apply_ner_to_df
-#from src.nlp.translation import apply_translation_to_df
-from src.nlp.clustering import cluster_by_name
+from src.nlp.translation import apply_translation_to_df
+from src.nlp.clustering import normalize, build_graph, extract_clusters
 from src.nlp.anonymization import anonymize_dataframe
 
 def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
     output_path="outputs/nlp_results.xlsx",
     model_path="./model_output",
-    sample_size=300,
+    sample_size=10,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -82,60 +82,31 @@ def run_nlp_pipeline(
             traceback.print_exc()
             print(f"⚠️ Translation failed: {e}")
     
-        # -------------------------------------------------------
-        # ENTITY MATCHING (NEW STEP - CRITICAL)
-        # -------------------------------------------------------
-        print("🧩 Running entity matching...")
-
-        try:
-            # Use translated names if available, fallback to raw
-            name_source = df["names_en"] if "names_en" in df.columns else df["names"]
-
-            name_source = name_source.fillna("").astype(str).tolist()
-
-            entity_map = build_entity_map(name_source)
-
-            df["entity_id"] = pd.Series(name_source).map(entity_map)
-
-            # fallback safety
-            df["entity_id"] = df["entity_id"].fillna("")
-
-            print(f"✅ Entity matching completed ({len(entity_map)} unique entities)")
-
-        except Exception as e:
-            print(f"⚠️ Entity matching failed: {e}")
-            df["entity_id"] = ""
-    
     # -------------------------------------------------------
     # CLUSTERING (NAME-FIRST SYSTEM)
     # -------------------------------------------------------
     if run_clustering:
         try:
             print("🧩 Running clustering (missing cases only)...")
+            #Preprocessing for clustering
+            df["clean"] = df["names"].fillna("").apply(normalize)
+            df["cluster_id"] = -1
 
-            # ensure column exists
-            if "cluster_id" not in df.columns:
-                df["cluster_id"] = -1
-
-            # isolate missing cases
-            df_missing = df.loc[df["is_missing"] == 1].copy()
+            # ONLY cluster missing cases
+            df_missing = df[df["is_missing"] == 1].copy()
 
             if not df_missing.empty:
 
-                # ✅ USE NAME-BASED CLUSTERING FUNCTION
-                df_missing = cluster_by_name(df_missing)
+                G = build_graph(df_missing, threshold=0.60)
 
-                # assign back safely
-                df.loc[df_missing.index, "cluster_id"] = df_missing["cluster_id"]
+                clusters = extract_clusters(G)
 
-                # count clusters (excluding optional noise -1)
-                n_clusters = df_missing["cluster_id"].nunique()
+                df.loc[df_missing.index, "cluster_id"] = df_missing.index.map(clusters)
 
-                print(f"Clusters found: {n_clusters}")
+                print(f"Clusters found: {len(set(clusters.values()))}")
 
             else:
                 print("⚠️ No missing cases to cluster")
-                df["cluster_id"] = -1
 
         except Exception as e:
             print(f"⚠️ Clustering failed: {e}")
@@ -147,12 +118,17 @@ def run_nlp_pipeline(
     try:
         print("🕶️ Running anonymization layer...")
 
-        df, anon_map = anonymize_dataframe(
-            df,
-            entity_col="entity_id",
+        df_missing = df[df["is_missing"] == 1].copy()
+
+        df_missing, anon_map = anonymize_dataframe(
+            df_missing,
             text_col="text_clean",
+            names_col="names",
+            cluster_col="cluster_id"   # IMPORTANT: pass correct arg name
         )
 
+        # merge back results
+        df.loc[df_missing.index, "text_clean_anon"] = df_missing["text_clean_anon"]
         print(f"✅ Anonymization completed ({len(anon_map)} entities masked)")
 
     except Exception as e:
@@ -174,13 +150,5 @@ def run_nlp_pipeline(
 
 
 if __name__ == "__main__":
-    run_nlp_pipeline(
-        input_path="data/nlp/telegram_clean.xlsx",
-        output_path="outputs/nlp_results.xlsx",
-        model_path="./model_output",
-        sample_size=300,
-        run_ner=True,
-        run_translation=True,
-        run_clustering=True,
-    )
+    run_nlp_pipeline()
 
