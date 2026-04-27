@@ -1,7 +1,8 @@
+# Import libraries
 from PIL import Image
 import os
 
-
+# Function to check if an image is valid
 def is_valid_image(path):
     try:
         img = Image.open(path)
@@ -10,7 +11,7 @@ def is_valid_image(path):
     except:
         return False
 
-
+# Function to load valid images from a folder
 def load_valid_images(input_folder, delete_corrupt=False, extensions=(".jpg", ".jpeg", ".png")):
     """
     Returns:
@@ -34,7 +35,7 @@ def load_valid_images(input_folder, delete_corrupt=False, extensions=(".jpg", ".
                     "path": path
                 })
             else:
-                print(f"❌ Corrupt image: {file}")
+                print(f"Corrupt image: {file}")
 
                 if delete_corrupt:
                     os.remove(path)

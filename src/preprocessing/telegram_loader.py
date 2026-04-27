@@ -1,8 +1,9 @@
+# Import libraries
 import pandas as pd
 import asyncio
 from telethon import TelegramClient
 
-
+# Function to fetch messages from a Telegram channel within a date range
 async def fetch_telegram_messages(
     api_id,
     api_hash,
@@ -46,17 +47,15 @@ async def fetch_telegram_messages(
                 )
             })
 
-    # ---------------------------
-    # ONLY HERE build dataframe
-    # ---------------------------
+    # convert to DataFrame
     df = pd.DataFrame(messages_data)
 
-    # safety check (prevents your error completely)
+    # Error handling for empty dataframe
     if df.empty:
-        print("⚠️ No messages found for this date range")
+        print("No messages found for this date range")
         return df
 
-    # ensure column exists BEFORE using it
+    # ensure column exists before using it
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
         df["date"] = df["date"].dt.tz_localize(None)
@@ -64,7 +63,7 @@ async def fetch_telegram_messages(
 
     return df
 
-
+# Wrapper function to run the async function
 def run_telegram_loader(api_id, api_hash, channel, start_date, end_date):
     return asyncio.run(
         fetch_telegram_messages(

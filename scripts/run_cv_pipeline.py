@@ -1,3 +1,4 @@
+# Import libraries
 import cv2
 import pandas as pd
 import numpy as np
@@ -15,17 +16,13 @@ from src.cv.shirt_color import (
 )
 from src.cv.image_similarity import get_embedding
 
-# -------------------
-# LOAD DATA
-# -------------------
+# Load data
 image_items = load_valid_images("data/images")
 
 results = []
 embeddings = []
 
-# -------------------
-# PROCESS IMAGES
-# -------------------
+# Process images iteratively
 for item in tqdm(image_items):
 
     file = item["file"]
@@ -66,17 +63,12 @@ for item in tqdm(image_items):
         "shirt_color_name": name
     })
 
-# -------------------
-# SAVE CV RESULTS
-# -------------------
+# Save CV results
 df = pd.DataFrame(results)
 df.to_csv("outputs/cv_results.csv", index=False)
 
-print("✅ CV results saved")
 
-# -------------------
-# IMAGE SIMILARITY
-# -------------------
+# Find image similarities
 X = np.array(embeddings)
 sim_matrix = cosine_similarity(X)
 
@@ -91,6 +83,5 @@ for i in range(len(image_items)):
                 "similarity": sim_matrix[i, j]
             })
 
+# Save image similarity results
 pd.DataFrame(similar_pairs).to_csv("outputs/image_similarity.csv", index=False)
-
-print("✅ Similarity saved")

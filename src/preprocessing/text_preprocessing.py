@@ -1,11 +1,10 @@
+# Import libraries
 import unicodedata
 import re
 import pandas as pd
 
 
-# -------------------------
-# CLEANING
-# -------------------------
+# Text normalization and cleaning for Arabic text
 def normalize_arabic(text):
     text = str(text)
 
@@ -19,25 +18,20 @@ def normalize_arabic(text):
 
     return text
 
-
 def clean_text_column(df, text_col="text"):
     df = df.copy()
     df["text_clean"] = df[text_col].apply(normalize_arabic)
     return df
 
 
-# -------------------------
-# DEDUPLICATION
-# -------------------------
+# Deduplication based on cleaned text
 def remove_duplicates(df, col="text_clean"):
     df = df.dropna(subset=[col])
     df = df.drop_duplicates(subset=[col])
     return df
 
 
-# -------------------------
-# SPAM FILTER
-# -------------------------
+# Spam filtering based on keywords (incl. investment, profit, subscription, forex, earn, money)
 def remove_spam(df, col="text_clean"):
     spam_keywords_ar = [
         "استثمار", "ربح", "اشتراك", "فوركس", "اكسب", "مال"
@@ -49,9 +43,7 @@ def remove_spam(df, col="text_clean"):
     return df
 
 
-# -------------------------
-# PIPELINE WRAPPER
-# -------------------------
+# Pipeline function to apply all preprocessing steps
 def preprocess_text_pipeline(df):
     df = clean_text_column(df)
     df = remove_duplicates(df)

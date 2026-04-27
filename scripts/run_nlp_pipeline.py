@@ -6,7 +6,7 @@ from src.nlp.classification import predict
 from src.nlp.ner import apply_ner_to_df
 from src.nlp.translation import apply_translation_to_df
 from src.nlp.clustering import normalize, build_graph, extract_clusters
-from src.nlp.pseudonymization import anonymize_dataframe
+from src.nlp.pseudonymization import pseudonymize_dataframe
 
 def run_nlp_pipeline(
     input_path="data/nlp/telegram_clean.xlsx",
@@ -107,7 +107,7 @@ def run_nlp_pipeline(
         # Only pseudonymize missing cases
         df_missing = df[df["is_missing"] == 1].copy()
 
-        df_missing, anon_map = anonymize_dataframe(
+        df_missing, anon_map = pseudonymize_dataframe(
             df_missing,
             text_col="text_clean",
             names_col="names",

@@ -1,7 +1,8 @@
+# Import libraries 
 import cv2
 import numpy as np
 
-
+# Define shirt color extraction functions (dominant color))
 def extract_shirt_region(image, face_bbox):
     x, y, w, h = face_bbox
     height, width, _ = image.shape
@@ -38,12 +39,12 @@ def dominant_color(image):
     counts = np.bincount(labels.flatten())
     return tuple(map(int, centers[np.argmax(counts)]))
 
-
+# Define color conversion functions from RGB to HSV
 def rgb_to_hsv(rgb):
     rgb_array = np.uint8([[rgb]])
     return cv2.cvtColor(rgb_array, cv2.COLOR_RGB2HSV)[0][0]
 
-
+# Define color naming function based on HSV values
 def hsv_to_color_name(hsv):
     h, s, v = hsv
 
@@ -68,7 +69,7 @@ def hsv_to_color_name(hsv):
     else:
         return "pink"
 
-
+# Define RGB to HEX conversion function
 def rgb_to_hex(rgb):
     if rgb is None:
         return None

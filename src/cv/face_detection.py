@@ -1,14 +1,15 @@
+# Import libraries
 import cv2
 from ultralytics import YOLO
 
-# models
+# Define both models
 yolo_model = YOLO("yolov8n.pt")
 
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
 
-
+# Define detection functions
 def detect_face_yolo(image):
     results = yolo_model(image)[0]
 

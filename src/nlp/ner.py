@@ -1,3 +1,4 @@
+# Import libraries 
 import re
 import json
 import time
@@ -8,14 +9,14 @@ import pandas as pd
 from groq import Groq
 from dotenv import load_dotenv
 
+# Load the environment to get Groq API Key
 load_dotenv()
 
-# =========================
-# GROQ CLIENT
-# =========================
-client = Groq()  # picks up GROQ_API_KEY from .env automatically
+# Initialize Groq client and define model
+client = Groq()  # picks up GROQ_API_KEY from .env file
 MODEL  = "llama-3.3-70b-versatile"
 
+# Create System Prompt for the NER task
 SYSTEM_PROMPT = """You are an Arabic NLP specialist analyzing missing persons appeals from Gaza.
 These messages are written in Palestinian/Gaza dialect Arabic mixed with MSA.
 Extract ONLY the missing person's information — not the sender, not contact persons.
@@ -37,9 +38,7 @@ Rules:
 - Date can be descriptive if no exact date is given (e.g. 'first month of the war')
 - If nothing found, return empty list [] for names and null for others"""
 
-# =========================
-# NORMALIZATION
-# =========================
+# Normalize Arabic to reduce spelling variation
 ARABIC_NORMALIZE_MAP = {
     "أ": "ا",
     "إ": "ا",
@@ -56,10 +55,8 @@ def normalize_arabic(text: str) -> str:
         text = text.replace(src, tgt)
     return text
 
-# =========================
-# REGEX FALLBACKS
-# (kept as backup if Groq call fails)
-# =========================
+# Regex fallback extraction, only used if LLM output is missing/uncertain
+# Date detection patterns
 DATE_PATTERNS = [
     r"(?:منذ\s+)?[\u0660-\u0669\d]+\s*(?:يوم|أيام|ايام|اسبوع|أسبوع|اسابيع|أسابيع|شهر|اشهر|أشهر|سنة|سنوات)",
     r"(?:خمس|ست|سبع|ثمان|تسع|عشر|اربع|أربع|ثلاث|اثنين|يوم|يومين)\s*(?:يوم|أيام|ايام|اسبوع|أسبوع|اسابيع|أسابيع|شهر|اشهر|أشهر|سنة|سنوات)",
@@ -71,17 +68,19 @@ DATE_PATTERNS = [
 ]
 DATE_RE = re.compile("|".join(DATE_PATTERNS))
 
+# Phone number detection patterns
 PHONE_RE = re.compile(
     r'(?:\+|00)?(?:970|972|971)?[\s\-]?(?:5[0-9]|0[5-9])[0-9\s\-]{7,12}'
 )
 
+# Location detection patterns
 LOCATION_FALLBACK_PATTERNS = [
     r"(?:في|فى|ب(?:ال|ـ)?|بال|عند|من|إلى|الى)\s+((?:ال)?[\u0621-\u064A\u0660-\u0669]{3,}(?:\s+(?:ال)?[\u0621-\u064A\u0660-\u0669]{2,}){0,3})",
     r"(?:منطقة|حي|شارع)\s+((?:ال)?[\u0621-\u064A\u0660-\u0669]{3,}(?:\s+(?:ال)?[\u0621-\u064A\u0660-\u0669]{2,}){0,3})",
 ]
 LOCATION_FALLBACK_RE = [re.compile(p) for p in LOCATION_FALLBACK_PATTERNS]
 
-
+# Define regex functions for fallback extraction
 def extract_date_regex(text: str) -> Optional[str]:
     if not isinstance(text, str):
         return None
@@ -116,9 +115,7 @@ def extract_phones(text: str) -> list[str]:
     return [p.strip() for p in PHONE_RE.findall(text or "")]
 
 
-# =========================
-# GROQ NER CALL
-# =========================
+# Groq NER function 
 def call_groq_ner(text: str, retries: int = 3, delay: float = 2.0) -> dict:
     """
     Call Groq with the NER prompt. Returns a dict with keys:
@@ -138,7 +135,7 @@ def call_groq_ner(text: str, retries: int = 3, delay: float = 2.0) -> dict:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user",   "content": text},
                 ],
-                temperature=0,
+                temperature=0, 
                 max_tokens=256,
             )
             raw = response.choices[0].message.content.strip()
@@ -163,18 +160,16 @@ def call_groq_ner(text: str, retries: int = 3, delay: float = 2.0) -> dict:
 
         except Exception as e:
             if "rate_limit" in str(e).lower() and attempt < retries - 1:
-                print(f"  ⏳ Rate limit hit, waiting {delay * (attempt + 1)}s...")
+                print(f"Rate limit hit, waiting {delay * (attempt + 1)}s...")
                 time.sleep(delay * (attempt + 1))
                 continue
-            print(f"  ⚠️ Groq call failed: {e}")
+            print(f"Groq call failed: {e}")
             return empty
 
     return empty
 
 
-# =========================
-# BATCH NER OVER DATAFRAME
-# =========================
+# Define batch processing function to run Groq NER on every row
 def predict_ner_groq(
     df: pd.DataFrame,
     text_col: str = "text_clean",
@@ -198,10 +193,7 @@ def predict_ner_groq(
     return results
 
 
-# =========================
-# MAIN APPLY FUNCTION
-# (same interface as before — drop-in replacement)
-# =========================
+# Define Apply NER function, incl. call to Groq (LLM preferred) and regex fallbacks
 def apply_ner_to_df(df: pd.DataFrame, text_col: str = "text_clean") -> pd.DataFrame:
     df = df.copy()
 
@@ -214,23 +206,23 @@ def apply_ner_to_df(df: pd.DataFrame, text_col: str = "text_clean") -> pd.DataFr
     age_list      = []
 
     for result, idx in zip(ner_results, df.index):
-        # --- Names ---
+        # Names
         names = result.get("missing_names") or []
         names_list.append("; ".join(names) if names else "")
 
-        # --- Location: LLM first, regex fallback ---
+        # Location: LLM first, regex fallback
         loc = result.get("location")
         if not loc:
             loc = extract_location_fallback(str(df.at[idx, text_col])) or ""
         location_list.append(loc or "")
 
-        # --- Date: LLM first, regex fallback ---
+        # Date: LLM first, regex fallback
         date = result.get("date")
         if not date:
             date = extract_date_regex(str(df.at[idx, text_col])) or ""
         dates_list.append(date or "")
 
-        # --- Age ---
+        # Age
         age_list.append(str(result.get("age") or ""))
 
     df["names"]    = names_list
@@ -239,12 +231,3 @@ def apply_ner_to_df(df: pd.DataFrame, text_col: str = "text_clean") -> pd.DataFr
     df["age"]      = age_list
 
     return df
-
-
-# =========================
-# COMPAT STUB
-# (run_nlp_pipeline.py imports load_ner_model — keep to avoid import errors)
-# =========================
-def load_ner_model():
-    """No-op: model is loaded via Groq API, nothing local to return."""
-    return None, None, None
