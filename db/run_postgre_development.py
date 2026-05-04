@@ -1,5 +1,7 @@
 import pandas as pd
 from sqlalchemy import create_engine
+from dotenv import load_dotenv
+import os
 
 # Load the environment to get Groq API Key
 load_dotenv()
@@ -12,7 +14,7 @@ if DB_URI is None:
 engine = create_engine(DB_URI)
 
 # Load the df
-df = pd.read_csv("your_final_dataset.csv")
+df = pd.read_csv("outputs/nlp_results.csv")
 
 # Create cases
 cases_df = df[df["cluster_id"] != -1][["cluster_id"]].drop_duplicates()
