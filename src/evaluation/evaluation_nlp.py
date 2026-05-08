@@ -106,19 +106,31 @@ def score_entities(pred_list, gold_list):
 def evaluate_classification(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    y_true = merged["is_missing_gold"].astype(int)
-    y_pred = merged["is_missing_pred"].astype(int)
+    try:
+        y_true = merged["is_missing_gold"].astype(int)
+        y_pred = merged["is_missing_pred"].astype(int)
 
-    return {
-        "task": "classification",
-        "entity": "-",
-        "accuracy":     accuracy_score(y_true, y_pred),
-        "f1_macro":     f1_score(y_true, y_pred, average="macro"),
-        "f1_weighted":  f1_score(y_true, y_pred, average="weighted"),
-        "precision":    None,
-        "recall":       None,
-        "f1":           None,
-    }
+        return {
+            "task": "classification",
+            "entity": "-",
+            "accuracy":     accuracy_score(y_true, y_pred),
+            "f1_macro":     f1_score(y_true, y_pred, average="macro"),
+            "f1_weighted":  f1_score(y_true, y_pred, average="weighted"),
+            "precision":    None,
+            "recall":       None,
+            "f1":           None,
+        }
+    except KeyError:
+        return {
+            "task": "classification",
+            "entity": "-",
+            "accuracy":     float("nan"),
+            "f1_macro":     float("nan"),
+            "f1_weighted":  float("nan"),
+            "precision":    None,
+            "recall":       None,
+            "f1":           None,
+        }
 
 
 # =========================
@@ -127,95 +139,139 @@ def evaluate_classification(df_pred, df_gold):
 def evaluate_ner(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    results = []
-    for col in ["names", "location", "dates", "age"]:
-        precisions, recalls, f1s = [], [], []
+    try:
+        results = []
+        for col in ["names", "location", "dates", "age"]:
+            precisions, recalls, f1s = [], [], []
 
-        for _, row in merged.iterrows():
-            pred = split_entities(row[f"{col}_pred"])
-            gold = split_entities(row[f"{col}_gold"])
-            p, r, f = score_entities(pred, gold)
-            if p is None:          # both sides empty → skip row
-                continue
-            precisions.append(p)
-            recalls.append(r)
-            f1s.append(f)
+            for _, row in merged.iterrows():
+                pred = split_entities(row[f"{col}_pred"])
+                gold = split_entities(row[f"{col}_gold"])
+                p, r, f = score_entities(pred, gold)
+                if p is None:          # both sides empty → skip row
+                    continue
+                precisions.append(p)
+                recalls.append(r)
+                f1s.append(f)
 
-        n = len(f1s)  # rows where at least one side was non-empty
-        results.append({
-            "task":        "NER",
-            "entity":      col,
-            "n_scored":    n,
-            "accuracy":    None,
-            "f1_macro":    None,
-            "f1_weighted": None,
-            "precision":   float(np.mean(precisions)) if n else float("nan"),
-            "recall":      float(np.mean(recalls))    if n else float("nan"),
-            "f1":          float(np.mean(f1s))        if n else float("nan"),
-        })
+            n = len(f1s)  # rows where at least one side was non-empty
+            results.append({
+                "task":        "NER",
+                "entity":      col,
+                "n_scored":    n,
+                "accuracy":    None,
+                "f1_macro":    None,
+                "f1_weighted": None,
+                "precision":   float(np.mean(precisions)) if n else float("nan"),
+                "recall":      float(np.mean(recalls))    if n else float("nan"),
+                "f1":          float(np.mean(f1s))        if n else float("nan"),
+            })
 
-    return results
+        return results
+    except KeyError:
+        return [
+            {
+                "task":        "NER",
+                "entity":      col,
+                "n_scored":    0,
+                "accuracy":    None,
+                "f1_macro":    None,
+                "f1_weighted": None,
+                "precision":   float("nan"),
+                "recall":      float("nan"),
+                "f1":          float("nan"),
+            }
+            for col in ["names", "location", "dates", "age"]
+        ]
 
 
 # =========================
 # 3. CLUSTERING
 # =========================
 def evaluate_clustering(df_pred, df_gold):
-    merged = df_pred.merge(df_gold, on="id")
+    merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    return {
-        "task":    "clustering",
-        "entity":  "-",
-        "ARI":     adjusted_rand_score(
-            merged["cluster_id_gold"],
-            merged["cluster_id_pred"],
-        ),
-        "accuracy": None, "f1_macro": None, "f1_weighted": None,
-        "precision": None, "recall": None, "f1": None,
-    }
+    try:
+        return {
+            "task":    "clustering",
+            "entity":  "-",
+            "ARI":     adjusted_rand_score(
+                merged["cluster_id_gold"],
+                merged["cluster_id_pred"],
+            ),
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
+    except KeyError:
+        return {
+            "task":    "clustering",
+            "entity":  "-",
+            "ARI":     float("nan"),
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
 
 
 # =========================
 # 4. TRANSLATION
 # =========================
 def evaluate_translation(df_pred, df_gold):
-    merged = df_pred.merge(df_gold, on="id")
+    merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    scores = []
-    for _, row in merged.iterrows():
-        ref  = str(row["text_en_gold"]).split()
-        pred = str(row["text_en_pred"]).split()
-        if ref and pred:
-            scores.append(sentence_bleu([ref], pred))
+    try:
+        scores = []
+        for _, row in merged.iterrows():
+            ref  = str(row["text_en_gold"]).split()
+            pred = str(row["text_en_pred"]).split()
+            if ref and pred:
+                scores.append(sentence_bleu([ref], pred))
 
-    return {
-        "task":    "translation",
-        "entity":  "-",
-        "BLEU":    float(np.mean(scores)) if scores else 0.0,
-        "accuracy": None, "f1_macro": None, "f1_weighted": None,
-        "precision": None, "recall": None, "f1": None,
-    }
+        return {
+            "task":    "translation",
+            "entity":  "-",
+            "BLEU":    float(np.mean(scores)) if scores else 0.0,
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
+    except KeyError:
+        return {
+            "task":    "translation",
+            "entity":  "-",
+            "BLEU":    float("nan"),
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
 
 
 # =========================
 # 5. PSEUDONYMIZATION
 # =========================
 def evaluate_pseudonymization(df_pred, df_gold):
-    merged = df_pred.merge(df_gold, on="id")
+    merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    leakage = merged["text_clean_anon_pred"].str.contains(
-        r"[A-Za-z\u0600-\u06FF]{4,}", na=False
-    ).sum()
-    total = len(merged)
+    try:
+        leakage = merged["text_clean_anon_pred"].str.contains(
+            r"[A-Za-z\u0600-\u06FF]{4,}", na=False
+        ).sum()
+        total = len(merged)
 
-    return {
-        "task":      "pseudonymization",
-        "entity":    "-",
-        "leak_rate": leakage / total,
-        "coverage":  1 - (leakage / total),
-        "accuracy": None, "f1_macro": None, "f1_weighted": None,
-        "precision": None, "recall": None, "f1": None,
-    }
+        return {
+            "task":      "pseudonymization",
+            "entity":    "-",
+            "leak_rate": leakage / total,
+            "coverage":  1 - (leakage / total),
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
+    except KeyError:
+        return {
+            "task":      "pseudonymization",
+            "entity":    "-",
+            "leak_rate": float("nan"),
+            "coverage":  float("nan"),
+            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "precision": None, "recall": None, "f1": None,
+        }
 
 
 # =========================
@@ -238,8 +294,8 @@ def diff_check(df_pred, df_gold, cols):
 if __name__ == "__main__":
 
     # ── Load & normalize ──────────────────────────────────────────────
-    PRED_PATH = "outputs/evaluation_results_test_dataset_OLD BUT WORKED.csv"
-    GOLD_PATH = "data/evaluation_correct_dataset.csv"
+    PRED_PATH = "outputs/pred_Gaza20249.csv"
+    GOLD_PATH = "data/gold_Gaza20249.csv"
 
     df_pred = normalize_dataframe(pd.read_csv(PRED_PATH))
     df_gold = normalize_dataframe(pd.read_csv(GOLD_PATH))
@@ -255,9 +311,9 @@ if __name__ == "__main__":
     results = []
     results.append(evaluate_classification(df_pred, df_gold))
     results.extend(evaluate_ner(df_pred, df_gold))
-    # results.append(evaluate_clustering(df_pred, df_gold))
-    # results.append(evaluate_translation(df_pred, df_gold))
-    # results.append(evaluate_pseudonymization(df_pred, df_gold))
+    results.append(evaluate_clustering(df_pred, df_gold))
+    results.append(evaluate_translation(df_pred, df_gold))
+    results.append(evaluate_pseudonymization(df_pred, df_gold))
 
     # ── Display & save ────────────────────────────────────────────────
     results_df = pd.DataFrame(results)
@@ -265,5 +321,5 @@ if __name__ == "__main__":
     print("\n===== FINAL EVALUATION RESULTS =====\n")
     print(results_df.to_string(index=False))
 
-    results_df.to_csv("evaluation_results.csv", index=False, encoding="utf-8")
-    print("\nSaved → evaluation_results.csv")
+    results_df.to_csv("outputs/evaluation_nlp.csv", index=False, encoding="utf-8")
+    print("\nSaved → outputs/evaluation_nlp.csv")

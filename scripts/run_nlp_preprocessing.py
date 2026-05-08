@@ -20,7 +20,7 @@ START_DATE = pd.Timestamp("2023-11-07", tz="UTC")
 END_DATE = pd.Timestamp("2024-04-01", tz="UTC")   # small test window!
 
 # Create output directory
-BASE_DIR = "data/nlp"
+BASE_DIR = "data/text"
 os.makedirs(BASE_DIR, exist_ok=True)
 
 RAW_PATH = os.path.join(BASE_DIR, "telegram_raw.xlsx")
