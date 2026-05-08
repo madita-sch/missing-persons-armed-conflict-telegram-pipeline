@@ -3,6 +3,7 @@ import re
 import pandas as pd
 from collections import defaultdict
 
+SLACK = 2 
 
 # Normalization of arabic text
 def normalize(text):

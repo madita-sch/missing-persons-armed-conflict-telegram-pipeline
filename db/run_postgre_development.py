@@ -1,86 +1,169 @@
-import pandas as pd
-from sqlalchemy import create_engine
-from dotenv import load_dotenv
 import os
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
+import numpy as np
 
-# Load the environment to get Groq API Key
+# ----------------------------
+# Load environment
+# ----------------------------
 load_dotenv()
 
-# Get DB connection string from environment
 DB_URI = os.getenv("DB_URI")
 if DB_URI is None:
     raise ValueError("DB_URI not found in environment variables")
-# Connect to PostgreSQL database
+
 engine = create_engine(DB_URI)
 
-# Load the df
-df = pd.read_csv("outputs/nlp_results.csv")
+# ----------------------------
+# Load dataset
+# ----------------------------
+df = pd.read_csv("outputs/evaluation_results_test_dataset.csv")
 
-# Create cases
-cases_df = df[df["cluster_id"] != -1][["cluster_id"]].drop_duplicates()
-cases_df.to_sql("cases", engine, if_exists="append", index=False)
+from sqlalchemy import text
 
-# Insert messages
+with engine.begin() as conn:
+    conn.execute(text("TRUNCATE TABLE extracted_entities RESTART IDENTITY CASCADE"))
+    conn.execute(text("TRUNCATE TABLE messages RESTART IDENTITY CASCADE"))
+    conn.execute(text("TRUNCATE TABLE cases RESTART IDENTITY CASCADE"))
+# ============================================================
+# 1. CASES TABLE (cluster_id -> case_id)
+# ============================================================
+agg = (df[df["cluster_id"] != -1]
+       .groupby("cluster_id")
+       .agg(
+           name_ar=("names","first"),
+           name_en=("names_en","first"),
+           location_ar=("location","first"),
+           location_en=("location_en","first"),
+           dates_ar=("dates","first"),
+           dates_en=("dates_en","first"),
+           age=("age","first"),
+           message_count=("id","count"),
+           first_seen_at=("date","min"),
+           last_seen_at=("date","max")
+       )
+       .reset_index()
+       .rename(columns={"cluster_id":"case_id"}))
+
+agg.to_sql("cases", engine, if_exists="append", index=False, method="multi")
+
+# ============================================================
+# 2. MESSAGES TABLE (FIXED: posted_at instead of date)
+# ============================================================
+
+# ============================================================
+# 2. MESSAGES TABLE
+# ============================================================
+
 messages_df = df[[
-    "id", "date", "text", "text_clean",
-    "text_clean_anon", "text_clean_en",
-    "views", "forwards", "reactions",
-    "is_missing", "cluster_id"
+    "id", "cluster_id", "date", "text", "text_clean",
+    "is_missing", "views", "forwards", "reactions"
 ]].copy()
 
 messages_df.rename(columns={
     "id": "message_id",
-    "text_clean_en": "text_en"
+    "cluster_id": "case_id",
+    "date": "posted_at",
+    "text": "text_raw",
 }, inplace=True)
 
-# Optional: add Telegram link
-messages_df["telegram_link"] = messages_df["message_id"].apply(
-    lambda x: f"https://t.me/GAZA20249/{x}"
+# -1 (unassigned cluster) -> NULL so the FK to cases.case_id is satisfied
+messages_df["case_id"] = messages_df["case_id"].replace(-1, np.nan)
+messages_df["case_id"] = messages_df["case_id"].astype("Int64")  # nullable int
+
+messages_df["is_missing"] = messages_df["is_missing"].fillna(0).astype(bool)
+messages_df["posted_at"]  = pd.to_datetime(messages_df["posted_at"], errors="coerce")
+
+for col in ["views", "forwards", "reactions"]:
+    messages_df[col] = pd.to_numeric(messages_df[col], errors="coerce").astype("Int64")
+
+messages_df.to_sql("messages", engine, if_exists="append",
+                   index=False, method="multi", chunksize=500)
+
+
+# ============================================================
+# 3. TRANSLATIONS TABLE
+# ============================================================
+
+translations_df = df[[
+    "id",
+    "text_clean_en",
+    "names_en",
+    "location_en",
+    "dates_en"
+]].copy()
+
+translations_df.rename(columns={"id": "message_id"}, inplace=True)
+
+translations_df.to_sql(
+    "message_translations",
+    engine,
+    if_exists="append",
+    index=False,
+    method="multi"
 )
 
-messages_df.to_sql("messages", engine, if_exists="append", index=False)
+# ============================================================
+# 4. ANONYMIZED TABLE
+# ============================================================
 
-# Split muliple names 
-def split_names(x):
+anon_df = df[[
+    "id",
+    "text_clean_anon"
+]].copy()
+
+anon_df.rename(columns={"id": "message_id"}, inplace=True)
+
+anon_df.to_sql(
+    "message_anonymized",
+    engine,
+    if_exists="append",
+    index=False,
+    method="multi"
+)
+
+# ============================================================
+# 5. EXTRACTED ENTITIES (normalized)
+# ============================================================
+
+def split_entities(x):
     if pd.isna(x):
         return []
-    return [n.strip() for n in str(x).split(";") if n.strip()]
+    return [i.strip() for i in str(x).split(";") if i.strip()]
 
 rows = []
 
 for _, row in df.iterrows():
-    for name in split_names(row["names"]):
-        rows.append({
-            "name_ar": name,
-            "name_en": row.get("names_en"),
-            "cluster_id": row["cluster_id"]
-        })
+    mid = row["id"]
+    case_id = row["cluster_id"] if row["cluster_id"] != -1 else None
 
-names_df = pd.DataFrame(rows)
-names_df.drop_duplicates(inplace=True)
+    for kind, col_ar, col_en in [
+        ("name", "names", "names_en"),
+        ("location", "location", "location_en"),
+        ("date", "dates", "dates_en"),
+        ("age", "age", None),
+    ]:
+        ars = split_entities(row.get(col_ar))
+        ens = split_entities(row.get(col_en)) if col_en else []
 
-names_df.to_sql("names", engine, if_exists="append", index=False)
+        for i, ar in enumerate(ars):
+            en = ens[i] if i < len(ens) else None
+            rows.append((mid, case_id, kind, ar, en))
 
-# Insert locations 
-loc_df = df[["location", "location_en", "cluster_id"]].dropna()
+        for j in range(len(ars), len(ens)):
+            rows.append((mid, case_id, kind, None, ens[j]))
 
-loc_df.rename(columns={
-    "location": "location_ar"
-}, inplace=True)
+entities_df = pd.DataFrame(rows, columns=[
+    "message_id", "case_id", "kind", "value_ar", "value_en"
+])
 
-loc_df.drop_duplicates(inplace=True)
-
-loc_df.to_sql("locations", engine, if_exists="append", index=False)
-
-# Link cases to messages
-# First get case_id mapping
-cases_db = pd.read_sql("SELECT case_id, cluster_id FROM cases", engine)
-
-merged = df.merge(cases_db, on="cluster_id")
-
-case_messages_df = merged[["case_id", "id"]].rename(
-    columns={"id": "message_id"}
+entities_df.to_sql(
+    "extracted_entities",
+    engine,
+    if_exists="append",
+    index=False,
+    method="multi"
 )
 
-case_messages_df.to_sql("case_messages", engine, if_exists="append", index=False)
-
+print("✅ Database successfully populated")

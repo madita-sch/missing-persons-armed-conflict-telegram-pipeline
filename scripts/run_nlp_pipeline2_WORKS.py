@@ -17,115 +17,105 @@ def run_nlp_pipeline(
     run_translation=True,
     run_clustering=True,
 ):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Helper to save checkpoints
+    def save_checkpoint(df, stage):
+        checkpoint_path = output_path.replace(".csv", f"_checkpoint_{stage}.csv")
+        df.to_csv(checkpoint_path, index=False, encoding="utf-8-sig")
+        print(f"[Checkpoint] Saved after '{stage}' → {checkpoint_path}")
+
     # Load preprocessed Telegram dataset
     df = pd.read_csv(input_path)
     df = df.sample(n=min(sample_size, len(df)), random_state=42).reset_index(drop=True)
 
-    # Sequence classification to find missing cases using the predict function
+    # Sequence classification
     df["is_missing"] = predict(model_path, df["text_clean"].tolist())
     print(f"Found {df['is_missing'].sum()} potential cases")
+    save_checkpoint(df, "classification")           # ← CHECKPOINT 1
 
     # NER
     if run_ner:
         try:
-
             df_missing = df[df["is_missing"] == 1]
-
             if len(df_missing) > 0:
                 df_missing = apply_ner_to_df(df_missing, text_col="text_clean")
-
                 for col in ["names", "location", "dates", "age"]:
                     df.loc[df_missing.index, col] = df_missing[col]
             else:
                 print("No missing cases found")
-
         except Exception as e:
             print(f"NER failed, continuing pipeline: {e}")
 
-    # Ensure columns produced by NER exist
     for col in ["names", "location", "dates", "age"]:
         if col not in df.columns:
             df[col] = ""
         else:
             df[col] = df[col].fillna("")
 
+    save_checkpoint(df, "ner")                      # ← CHECKPOINT 2
+
     # Translation
     if run_translation:
         try:
-            # Only translate missing cases
             df_missing = df[df["is_missing"] == 1].copy()
-
             if len(df_missing) > 0:
                 df_missing = apply_translation_to_df(
                     df_missing,
                     text_col="text_clean",
                     extra_cols=["names", "location", "dates"],
                 )
-                # copy translated columns back to main df
                 for col in ["text_clean_en", "names_en", "location_en", "dates_en"]:
                     if col in df_missing.columns:
                         df.loc[df_missing.index, col] = df_missing[col]
-
                 print(f"Translated {len(df_missing)} missing cases")
             else:
                 print("No missing cases to translate")
-
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"Translation failed: {e}")
-    
+
+    save_checkpoint(df, "translation")              # ← CHECKPOINT 3
+
     # Clustering
     if run_clustering:
         try:
-            #Preprocessing for clustering
             df["clean"] = df["names"].fillna("").apply(normalize)
             df["cluster_id"] = -1
-
-            # Only cluster missing cases
             df_missing = df[df["is_missing"] == 1].copy()
-
             if not df_missing.empty:
-
                 G = build_graph(df_missing, threshold=0.60)
-
                 clusters = extract_clusters(G)
-
                 df.loc[df_missing.index, "cluster_id"] = df_missing.index.map(clusters)
-
                 print(f"Clusters found: {len(set(clusters.values()))}")
-
             else:
                 print("No missing cases to cluster")
-
         except Exception as e:
             print(f"Clustering failed: {e}")
             df["cluster_id"] = -1
 
+    save_checkpoint(df, "clustering")              # ← CHECKPOINT 4
+
     # Pseudonymization
     try:
-        # Only pseudonymize missing cases
         df_missing = df[df["is_missing"] == 1].copy()
-
         df_missing, anon_map = pseudonymize_dataframe(
             df_missing,
             text_col="text_clean",
             names_col="names",
-            cluster_col="cluster_id"   # IMPORTANT: pass correct arg name
+            cluster_col="cluster_id"
         )
-
-        # merge back results
         df.loc[df_missing.index, "text_clean_anon"] = df_missing["text_clean_anon"]
         print(f"Pseudonymization completed ({len(anon_map)} entities masked)")
-
     except Exception as e:
         print(f"Pseudonymization failed: {e}")
-    
-    # Save output
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+    # Remove "clean" column used as helper column for clustering
+    df = df.drop(columns=["clean"], errors="ignore")
+
+    # Save final output
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
-
     print("NLP Pipeline completed successfully")
     print(f"Saved to: {output_path}")
 
@@ -133,4 +123,8 @@ def run_nlp_pipeline(
 
 
 if __name__ == "__main__":
-    run_nlp_pipeline()
+    run_nlp_pipeline(
+    input_path="data/evaluation_test_dataset.csv",
+    output_path="outputs/evaluation_results_test_dataset.csv",
+        sample_size=210,
+    )
