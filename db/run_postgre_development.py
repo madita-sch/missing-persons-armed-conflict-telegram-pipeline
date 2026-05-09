@@ -18,7 +18,7 @@ engine = create_engine(DB_URI)
 # ----------------------------
 # Load dataset
 # ----------------------------
-df = pd.read_csv("outputs/evaluation_results_test_dataset.csv")
+df = pd.read_csv("outputs/pred_Gaza20249.csv")
 
 from sqlalchemy import text
 

@@ -243,10 +243,20 @@ def kpi_card(title, value, color, icon):
 # ─────────────────────────────────────────────
 def build_cases_table(df, table_id="results-table"):
     """Render a styled DataTable for a cases dataframe."""
+    # Custom column name mapping
+    name_mapping = {
+        "case_id": "Case ID",
+        "name_ar": "Name (Ar)",
+        "name_en": "Name (En)",
+        "location_ar": "Location (Ar)",
+        "location_en": "Location (En)",
+        "age": "Age"
+    }
+    columns = [{"name": name_mapping.get(c, c.replace("_", " ").title()), "id": c} for c in df.columns]
     return dash_table.DataTable(
         id=table_id,
         data=df.to_dict("records"),
-        columns=[{"name": c.replace("_", " ").title(), "id": c} for c in df.columns],
+        columns=columns,
         page_size=15,
         row_selectable="single",
         selected_rows=[],
@@ -269,14 +279,42 @@ def build_cases_table(df, table_id="results-table"):
             "fontFamily": FONT,
             "textAlign": "center",
         },
-        style_data_conditional=[{
-            "if": {"state": "selected"},
-            "backgroundColor": "#EFF6FF",
-            "border": "none",
-        }],
+        style_data_conditional=[
+            {
+                "if": {"state": "selected"},
+                "backgroundColor": "#EFF6FF",
+                "border": "none",
+            },
+            {
+                "if": {"column_id": "case_id"},
+                "fontWeight": "700",
+            },
+            {
+                "if": {"column_id": "name_en"},
+                "backgroundColor": "#F3F4F6",
+            },
+            {
+                "if": {"column_id": "location_en"},
+                "backgroundColor": "#F3F4F6",
+            },
+            {
+                "if": {
+                    "column_id": "name_ar",
+                    "filter_query": "{name_ar} = 'Unknown name'"
+                },
+                "fontStyle": "italic",
+            },
+            {
+                "if": {
+                    "column_id": "name_en",
+                    "filter_query": "{name_en} = 'Unknown name'"
+                },
+                "fontStyle": "italic",
+            },
+        ],
         style_cell_conditional=[
             {"if": {"column_id": "name_ar"},
-             "maxWidth": "180px", "textAlign": "right", "direction": "rtl",
+             "maxWidth": "180px", "textAlign": "center", "direction": "rtl",
              "whiteSpace": "normal", "height": "auto"},
             {"if": {"column_id": "name_en"},
              "maxWidth": "180px", "whiteSpace": "normal", "height": "auto"},
@@ -308,67 +346,122 @@ NAV_ITEM_STYLE = {
 app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Missing Persons Dashboard"
 
-app.layout = html.Div([
+def get_main_layout():
+    return html.Div([
 
-    GOOGLE_FONT,
-
-    # ── SIDEBAR ──────────────────────────────────
-    html.Div([
+        # ── SIDEBAR ──────────────────────────────────
         html.Div([
-            html.Div("🔍", style={"fontSize": "24px"}),
             html.Div([
-                html.Div("MISSING", style={
-                    "fontSize": "14px", "fontWeight": "700",
-                    "color": "white", "letterSpacing": "3px"
-                }),
-                html.Div("PERSONS DB", style={
-                    "fontSize": "10px", "color": "#475569",
-                    "letterSpacing": "2px", "marginTop": "1px"
-                }),
-            ])
-        ], style={"display": "flex", "alignItems": "center",
-                  "gap": "12px", "marginBottom": "36px"}),
+                html.Div("🔍", style={"fontSize": "24px"}),
+                html.Div([
+                    html.Div("MISSING", style={
+                        "fontSize": "14px", "fontWeight": "700",
+                        "color": "white", "letterSpacing": "3px"
+                    }),
+                    html.Div("PERSONS DB", style={
+                        "fontSize": "10px", "color": "#475569",
+                        "letterSpacing": "2px", "marginTop": "1px"
+                    }),
+                ])
+            ], style={"display": "flex", "alignItems": "center",
+                      "gap": "12px", "marginBottom": "36px"}),
 
+            html.Div([
+                html.Div(id="nav-cases-btn", children=["📁  Cases"],
+                         n_clicks=0, style=NAV_ITEM_STYLE),
+                html.Div(id="nav-analytics-btn", children=["📊  Analytics"],
+                         n_clicks=0, style=NAV_ITEM_STYLE),
+            ]),
+
+            html.Div("v1.0", style={
+                "position": "absolute", "bottom": "24px", "left": "20px",
+                "color": "#334155", "fontSize": "11px", "fontFamily": FONT
+            })
+        ], style={
+            "width": "220px",
+            "minHeight": "100vh",
+            "position": "fixed",
+            "top": 0, "left": 0,
+            "backgroundColor": SIDEBAR_BG,
+            "padding": "28px 20px",
+            "boxSizing": "border-box",
+            "zIndex": "100",
+        }),
+
+        # ── MAIN AREA ────────────────────────────────
         html.Div([
-            html.Div(id="nav-cases-btn", children=["📁  Cases"],
-                     n_clicks=0, style=NAV_ITEM_STYLE),
-            html.Div(id="nav-analytics-btn", children=["📊  Analytics"],
-                     n_clicks=0, style=NAV_ITEM_STYLE),
-        ]),
+            html.Div(id="page-content")
+        ], style={
+            "marginLeft": "220px",
+            "minHeight": "100vh",
+            "backgroundColor": PAGE_BG,
+            "padding": "32px 36px",
+            "boxSizing": "border-box",
+            "fontFamily": FONT,
+        }),
 
-        html.Div("v1.0", style={
-            "position": "absolute", "bottom": "24px", "left": "20px",
-            "color": "#334155", "fontSize": "11px", "fontFamily": FONT
-        })
-    ], style={
-        "width": "220px",
-        "minHeight": "100vh",
-        "position": "fixed",
-        "top": 0, "left": 0,
-        "backgroundColor": SIDEBAR_BG,
-        "padding": "28px 20px",
-        "boxSizing": "border-box",
-        "zIndex": "100",
-    }),
+        # ── HIDDEN STORES ────────────────────────────
+        dcc.Store(id="active-page", data="cases"),
+        dcc.Store(id="selected-case-id", data=None),
+        dcc.Store(id="search-performed", data=False),
 
-    # ── MAIN AREA ────────────────────────────────
-    html.Div([
-        html.Div(id="page-content")
-    ], style={
-        "marginLeft": "220px",
-        "minHeight": "100vh",
-        "backgroundColor": PAGE_BG,
-        "padding": "32px 36px",
-        "boxSizing": "border-box",
-        "fontFamily": FONT,
-    }),
+    ], style={"margin": "0", "padding": "0", "fontFamily": FONT})
 
-    # ── HIDDEN STORES ────────────────────────────
-    dcc.Store(id="active-page", data="cases"),
-    dcc.Store(id="selected-case-id", data=None),
-    dcc.Store(id="search-performed", data=False),
+app.layout = html.Div([
+    GOOGLE_FONT,
+    dcc.Store(id="logged_in", data=False),
+    dcc.Store(id="login-error-store", data=""),
+    html.Div(id="app-content"),
+])
 
-], style={"margin": "0", "padding": "0", "fontFamily": FONT})
+
+# ─────────────────────────────────────────────
+# LOGIN CALLBACK
+# ─────────────────────────────────────────────
+@app.callback(
+    [Output("logged_in", "data"), Output("login-error-store", "data")],
+    Input("login-btn", "n_clicks"),
+    State("password-input", "value"),
+    prevent_initial_call=True
+)
+def login(n_clicks, password):
+    if password == "missing_db26":
+        return True, ""
+    else:
+        return False, "Incorrect password. Try again."
+
+
+# ─────────────────────────────────────────────
+# RENDER APP CONTENT
+# ─────────────────────────────────────────────
+@app.callback(
+    Output("app-content", "children"),
+    Input("logged_in", "data"),
+    Input("login-error-store", "data")
+)
+def render_app_content(logged_in, error_msg):
+    if not logged_in:
+        return html.Div([
+            html.Div([
+                html.H1("Missing Persons Database", style={
+                    "textAlign": "center", "marginBottom": "20px", "color": TEXT_DARK, "fontFamily": FONT
+                }),
+                html.Div("Enter Password:", style={
+                    "textAlign": "center", "marginBottom": "10px", "fontSize": "16px", "fontFamily": FONT
+                }),
+                dcc.Input(id="password-input", type="password", placeholder="Password", style={
+                    "width": "200px", "padding": "10px", "fontSize": "16px", "textAlign": "center", "margin": "0 auto", "display": "block", "fontFamily": FONT
+                }),
+                html.Button("Login", id="login-btn", n_clicks=0, style={
+                    "marginTop": "20px", "padding": "10px 20px", "fontSize": "16px", "backgroundColor": ACCENT, "color": "white", "border": "none", "borderRadius": "5px", "cursor": "pointer", "display": "block", "margin": "20px auto", "fontFamily": FONT
+                }),
+                html.Div(error_msg, style={"textAlign": "center", "color": ACCENT_RED, "marginTop": "10px", "fontFamily": FONT})
+            ], style={
+                "position": "absolute", "top": "50%", "left": "50%", "transform": "translate(-50%, -50%)", "textAlign": "center"
+            })
+        ], style={"height": "100vh", "backgroundColor": PAGE_BG, "fontFamily": FONT})
+    else:
+        return get_main_layout()
 
 
 # ─────────────────────────────────────────────
@@ -490,7 +583,10 @@ def render_page(page):
                 card([
                     html.Div("All Cases", style={
                         "fontSize": "15px", "fontWeight": "600",
-                        "color": TEXT_DARK, "marginBottom": "16px"
+                        "color": TEXT_DARK, "marginBottom": "8px"
+                    }),
+                    html.Div("Select a case to see the profile below.", style={
+                        "fontSize": "13px", "color": TEXT_MED, "marginBottom": "16px"
                     }),
                     all_cases_table,
                 ], style={"marginBottom": "24px"})
@@ -620,8 +716,7 @@ def render_page(page):
 )
 def run_search(n_clicks, query):
     if not query or not query.strip():
-        return html.Div("⚠️ Please enter a search term.",
-                        style={"color": ACCENT_AMB, "fontSize": "14px"}), False
+        return "", False
     try:
         df = search_cases(query.strip())
     except Exception as e:

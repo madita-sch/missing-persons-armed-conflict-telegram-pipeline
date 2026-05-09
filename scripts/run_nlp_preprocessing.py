@@ -3,7 +3,7 @@ import pandas as pd
 
 from src.preprocessing.telegram_loader import run_telegram_loader
 from src.preprocessing.text_preprocessing import normalize_arabic
-
+from dotenv import load_dotenv
 
 # Load the environment
 load_dotenv()
@@ -11,16 +11,17 @@ load_dotenv()
 # Configuration for the Telegram API and data extraction
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-
+print(API_ID)
+print(API_HASH)
 # Define Telegram channel
-CHANNEL = "Gaza20249"
+CHANNEL = "ALMAFKODEN"
 
 # Define date range for data extraction
-START_DATE = pd.Timestamp("2023-11-07", tz="UTC")
-END_DATE = pd.Timestamp("2024-04-01", tz="UTC")   # small test window!
+START_DATE = pd.Timestamp("2024-12-01", tz="UTC")
+END_DATE = pd.Timestamp("2024-12-31", tz="UTC") 
 
 # Create output directory
-BASE_DIR = "data/text"
+BASE_DIR = "data/text_ALMAFKODEN"
 os.makedirs(BASE_DIR, exist_ok=True)
 
 RAW_PATH = os.path.join(BASE_DIR, "telegram_raw.xlsx")

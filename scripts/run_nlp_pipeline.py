@@ -9,10 +9,10 @@ from src.nlp.clustering import normalize, build_graph, extract_clusters
 from src.nlp.pseudonymization import pseudonymize_dataframe
 
 def run_nlp_pipeline(
-    input_path="data/test_Gaza20249.csv",
-    output_path="outputs/pred_Gaza20249.csv",
+    input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
+    output_path="outputs/pred_ALMAFKODEN.csv",
     model_path="./model_output",
-    sample_size=93,
+    sample_size=100,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -26,7 +26,7 @@ def run_nlp_pipeline(
         print(f"[Checkpoint] Saved after '{stage}' → {checkpoint_path}")
 
     # Load preprocessed Telegram dataset
-    df = pd.read_csv(input_path)
+    df = pd.read_excel(input_path)
     df = df.sample(n=min(sample_size, len(df)), random_state=42).reset_index(drop=True)
 
     # Sequence classification
@@ -124,23 +124,8 @@ def run_nlp_pipeline(
 
 if __name__ == "__main__":
     run_nlp_pipeline(
-    input_path="data/test_df_Gaza20249.csv",
-    output_path="outputs/pred_Gaza20249.csv",
-        sample_size=93,
+    input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
+    output_path="outputs/pred_ALMAFKODEN.csv",
+        sample_size=100,
     )
-
-
-import pandas as pd
-
-# Load datasets
-df1 = pd.read_csv("outputs/pred_evaluation_results_test_dataset.csv")
-df2 = pd.read_csv("outputs/Pred_GOLD100.csv")
-
-# Append rows
-df_combined = pd.concat([df1, df2], ignore_index=True)
-
-# Save merged dataset
-df_combined.to_csv("outputs/pred_Gaza20249.csv", index=False,encoding="utf-8-sig")
-
-print(df_combined.shape)
-print(df_combined.head())
+    
