@@ -3,12 +3,14 @@ import pandas as pd
 from src.evaluation.evaluation_cv import *
 import ast
 
-
+# Load datasets
 gt = pd.read_csv("data/cv_correct_results.csv")
 pred = pd.read_csv("outputs/cv_results.csv")
 
+# Merge on file name
 df = pd.merge(gt, pred, on="file")
 
+# Compute color distance
 df["gt_rgb"] = df["correct_shirt_color_hex"].apply(hex_to_rgb)
 df["pred_rgb"] = df["shirt_color_rgb"].apply(
     lambda x: ast.literal_eval(x) if isinstance(x, str) else x
@@ -16,4 +18,5 @@ df["pred_rgb"] = df["shirt_color_rgb"].apply(
 
 df = compute_color_distance(df)
 
+# Save results
 df.to_csv("outputs/evaluation_cv.csv", index=False)

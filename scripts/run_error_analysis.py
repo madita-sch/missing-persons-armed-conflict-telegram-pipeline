@@ -1,8 +1,9 @@
+# Import libraries
 import pandas as pd
 from src.evaluation.evaluation_nlp import normalize_dataframe
 from src.evaluation.error_analysis_nlp import build_error_analysis_report
 
-
+# Run error analysis and save results to CSV
 if __name__ == "__main__":
 
     PRED_PATH = "outputs/pred_Gaza20249.csv"

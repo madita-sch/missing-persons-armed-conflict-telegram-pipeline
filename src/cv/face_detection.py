@@ -9,7 +9,7 @@ face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
 
-# Define detection functions
+# Define yolo detection function
 def detect_face_yolo(image):
     results = yolo_model(image)[0]
 
@@ -27,7 +27,7 @@ def detect_face_yolo(image):
 
     return best_box
 
-
+# Define haar cascade detection function
 def detect_face_haar(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
@@ -38,7 +38,7 @@ def detect_face_haar(image):
     faces = sorted(faces, key=lambda x: x[2] * x[3], reverse=True)
     return faces[0]
 
-
+# Define main detection function that tries YOLO first, then Haar
 def detect_face(image):
     bbox = detect_face_yolo(image)
     if bbox is not None:

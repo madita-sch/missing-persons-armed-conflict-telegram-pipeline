@@ -1,3 +1,4 @@
+# Import libraries
 import os
 import pandas as pd
 
@@ -40,6 +41,7 @@ df = run_telegram_loader(
 
 print(f"Loaded {len(df)} messages")
 
+# Save raw data
 df.to_excel(RAW_PATH, index=False)
 
 
@@ -52,6 +54,7 @@ df["text_clean"] = df["text"].apply(normalize_arabic)
 df = df.dropna(subset=["text_clean"])
 df = df.drop_duplicates(subset=["text_clean"])
 
+# Save cleaned data
 df.to_excel(CLEAN_PATH, index=False)
 
 
@@ -62,4 +65,5 @@ if len(df) == 0:
 else:
     df_sample = df.sample(n=min(200, len(df)), random_state=42)
 
+# Save sample data
 df_sample.to_excel(SAMPLE_PATH, index=False)

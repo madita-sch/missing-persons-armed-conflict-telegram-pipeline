@@ -1,34 +1,31 @@
+# Import libraries
 import os
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 import numpy as np
+from sqlalchemy import text
 
-# ----------------------------
 # Load environment
-# ----------------------------
 load_dotenv()
 
+# Create database engine
 DB_URI = os.getenv("DB_URI")
 if DB_URI is None:
     raise ValueError("DB_URI not found in environment variables")
 
 engine = create_engine(DB_URI)
 
-# ----------------------------
 # Load dataset
-# ----------------------------
 df = pd.read_csv("outputs/pred_Gaza20249.csv")
 
-from sqlalchemy import text
-
+# Connect to the database and populate tables
 with engine.begin() as conn:
     conn.execute(text("TRUNCATE TABLE extracted_entities RESTART IDENTITY CASCADE"))
     conn.execute(text("TRUNCATE TABLE messages RESTART IDENTITY CASCADE"))
     conn.execute(text("TRUNCATE TABLE cases RESTART IDENTITY CASCADE"))
-# ============================================================
-# 1. CASES TABLE (cluster_id -> case_id)
-# ============================================================
+
+# Cases table (cluster_id -> case_id)
 agg = (df[df["cluster_id"] != -1]
        .groupby("cluster_id")
        .agg(
@@ -48,14 +45,7 @@ agg = (df[df["cluster_id"] != -1]
 
 agg.to_sql("cases", engine, if_exists="append", index=False, method="multi")
 
-# ============================================================
-# 2. MESSAGES TABLE (FIXED: posted_at instead of date)
-# ============================================================
-
-# ============================================================
-# 2. MESSAGES TABLE
-# ============================================================
-
+# Messages table
 messages_df = df[[
     "id", "cluster_id", "date", "text", "text_clean",
     "is_missing", "views", "forwards", "reactions"
@@ -82,10 +72,7 @@ messages_df.to_sql("messages", engine, if_exists="append",
                    index=False, method="multi", chunksize=500)
 
 
-# ============================================================
-# 3. TRANSLATIONS TABLE
-# ============================================================
-
+# Translations table
 translations_df = df[[
     "id",
     "text_clean_en",
@@ -104,10 +91,7 @@ translations_df.to_sql(
     method="multi"
 )
 
-# ============================================================
-# 4. ANONYMIZED TABLE
-# ============================================================
-
+# Pseudonymized text table
 anon_df = df[[
     "id",
     "text_clean_anon"
@@ -123,10 +107,7 @@ anon_df.to_sql(
     method="multi"
 )
 
-# ============================================================
-# 5. EXTRACTED ENTITIES (normalized)
-# ============================================================
-
+# Extracted entities table
 def split_entities(x):
     if pd.isna(x):
         return []
@@ -166,4 +147,4 @@ entities_df.to_sql(
     method="multi"
 )
 
-print("✅ Database successfully populated")
+print("Database successfully populated")

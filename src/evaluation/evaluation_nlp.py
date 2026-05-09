@@ -1,6 +1,4 @@
-# =========================
-# IMPORTS
-# =========================
+# Import libraries
 import re
 import numpy as np
 import pandas as pd
@@ -9,11 +7,8 @@ from sklearn.metrics import accuracy_score, f1_score, adjusted_rand_score
 from nltk.translate.bleu_score import sentence_bleu
 
 
-# =========================
-# ARABIC NORMALIZATION
-# =========================
+# Create Arabic normalization function
 ARABIC_DIACRITICS = re.compile(r"[\u064B-\u065F\u0670]")
-
 
 def normalize_arabic(text):
     if pd.isna(text):
@@ -26,9 +21,7 @@ def normalize_arabic(text):
     return text
 
 
-# =========================
-# NORMALIZATION
-# =========================
+# Function to normalize dataframe
 def normalize_dataframe(df):
     df = df.copy()
     for col in df.columns:
@@ -37,18 +30,14 @@ def normalize_dataframe(df):
     return df
 
 
-# =========================
-# ENTITY HELPERS
-# =========================
+# Split entities that are separated by semicolon and normalize each for arabic
 def split_entities(text):
-    """Split semicolon-separated entities, normalizing each for Arabic."""
     if pd.isna(text) or str(text).strip() == "":
         return []
     return [normalize_arabic(e) for e in str(text).split(";") if e.strip()]
 
-
+# Create Fuzzy match function, robust to Arabic orthographic variation
 def is_match(a, b, threshold=90):
-    """Fuzzy match robust to Arabic orthographic variation."""
     a = normalize_arabic(a)
     b = normalize_arabic(b)
     if a == b:
@@ -59,19 +48,13 @@ def is_match(a, b, threshold=90):
         return True
     return False
 
-
+# Alignment-based P/R/F1 with fuzzy matching
 def score_entities(pred_list, gold_list):
-    """Alignment-based P/R/F1 with fuzzy matching.
-
-    Returns (None, None, None) when both lists are empty so the caller
-    can skip this row rather than averaging in a spurious 0.0.
-    Returns (0, 0, 0) when only one side is empty (genuine miss/hallucination).
-    """
-    # Both empty → nothing to evaluate for this row
+    # Both empty, then nothing to evaluate for this row
     if not pred_list and not gold_list:
         return None, None, None
 
-    # One side empty → all FP or all FN
+    # One side empty, then all FP or all FN
     if not pred_list:
         return 0.0, 0.0, 0.0
     if not gold_list:
@@ -100,9 +83,7 @@ def score_entities(pred_list, gold_list):
     return precision, recall, f1
 
 
-# =========================
-# 1. CLASSIFICATION
-# =========================
+# Evaluate classification function
 def evaluate_classification(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -133,9 +114,7 @@ def evaluate_classification(df_pred, df_gold):
         }
 
 
-# =========================
-# 2. NER
-# =========================
+# Evaluate NER function
 def evaluate_ner(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -185,9 +164,7 @@ def evaluate_ner(df_pred, df_gold):
         ]
 
 
-# =========================
-# 3. CLUSTERING
-# =========================
+# Evaluate Clustering function
 def evaluate_clustering(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -212,9 +189,7 @@ def evaluate_clustering(df_pred, df_gold):
         }
 
 
-# =========================
-# 4. TRANSLATION
-# =========================
+# Evaluate translation function
 def evaluate_translation(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -247,9 +222,7 @@ def evaluate_translation(df_pred, df_gold):
         }
 
 
-# =========================
-# 5. PSEUDONYMIZATION
-# =========================
+# Evaluate Pseudonymization function
 def evaluate_pseudonymization(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 

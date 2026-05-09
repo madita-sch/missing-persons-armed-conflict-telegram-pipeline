@@ -1,8 +1,5 @@
--- =====================================================================
--- Missing Persons (Armed Conflict Telegram Pipeline)
--- Case-centric relational schema
--- Target: PostgreSQL 18.x
--- =====================================================================
+-- Missing Persons DB Schema
+
 
 BEGIN;
 
@@ -15,10 +12,9 @@ DROP TYPE  IF EXISTS entity_kind;
 
 CREATE TYPE entity_kind AS ENUM ('name', 'location', 'date', 'age');
 
--- ---------------------------------------------------------------------
+
 -- CASES  (one row per missing-person cluster)
--- case_id == cluster_id from the dataset (excluding -1 = unassigned)
--- ---------------------------------------------------------------------
+-- case_id == cluster_id from the dataset (excluding -1 = unassigned as non-missing cases)
 CREATE TABLE cases (
     case_id            INTEGER PRIMARY KEY,
     name_ar            TEXT,
@@ -37,9 +33,8 @@ CREATE TABLE cases (
 COMMENT ON TABLE  cases       IS 'Case-level entity. One case = one missing person (cluster).';
 COMMENT ON COLUMN cases.case_id IS 'Mirrors cluster_id from the NLP pipeline. -1 (unassigned) is excluded.';
 
--- ---------------------------------------------------------------------
+
 -- MESSAGES  (raw Telegram posts)
--- ---------------------------------------------------------------------
 CREATE TABLE messages (
     message_id    BIGINT PRIMARY KEY,                       -- 'id' column from CSV
     case_id       INTEGER REFERENCES cases(case_id) ON DELETE SET NULL,
@@ -58,9 +53,8 @@ CREATE INDEX idx_messages_is_missing ON messages(is_missing);
 
 COMMENT ON TABLE messages IS 'Raw Telegram messages. Linked many-to-one to cases via case_id.';
 
--- ---------------------------------------------------------------------
+
 -- MESSAGE TRANSLATIONS  (English versions)
--- ---------------------------------------------------------------------
 CREATE TABLE message_translations (
     message_id     BIGINT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
     text_clean_en  TEXT,
@@ -69,19 +63,17 @@ CREATE TABLE message_translations (
     dates_en       TEXT
 );
 
--- ---------------------------------------------------------------------
+
 -- MESSAGE ANONYMIZED  (PII-stripped versions)
--- ---------------------------------------------------------------------
 CREATE TABLE message_anonymized (
     message_id        BIGINT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
     clean             TEXT,
     text_clean_anon   TEXT
 );
 
--- ---------------------------------------------------------------------
+
 -- EXTRACTED ENTITIES  (normalized signals per message)
 -- One row per (message, kind, value_ar)
--- ---------------------------------------------------------------------
 CREATE TABLE extracted_entities (
     entity_id   BIGSERIAL PRIMARY KEY,
     message_id  BIGINT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
@@ -95,9 +87,7 @@ CREATE INDEX idx_entities_message ON extracted_entities(message_id);
 CREATE INDEX idx_entities_case    ON extracted_entities(case_id);
 CREATE INDEX idx_entities_kind    ON extracted_entities(kind);
 
--- ---------------------------------------------------------------------
 -- Convenience view: full case page
--- ---------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_case_page AS
 SELECT
     c.case_id,

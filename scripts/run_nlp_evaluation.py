@@ -1,3 +1,4 @@
+# Import libraries
 import pandas as pd
 from src.evaluation.evaluation_nlp import (
     normalize_dataframe,
@@ -8,13 +9,11 @@ from src.evaluation.evaluation_nlp import (
     evaluate_pseudonymization,
 )
 
-# =========================
-# DEBUG HELPER
-# =========================
+# Define debug helper
 def diff_check(df_pred, df_gold, cols):
     """Print how many rows differ between pred and gold per column."""
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
-    print("\n===== DIFF CHECK =====")
+    print("\n - DIFF CHECK")
     for col in cols:
         if f"{col}_pred" in merged.columns and f"{col}_gold" in merged.columns:
             diff = (merged[f"{col}_pred"] != merged[f"{col}_gold"]).sum()
@@ -22,15 +21,14 @@ def diff_check(df_pred, df_gold, cols):
     print()
 
 
-# =========================
-# MAIN
-# =========================
+# Run evaluations
 if __name__ == "__main__":
 
-    # ── Load & normalize ──────────────────────────────────────────────
+    # Load data
     PRED_PATH = "outputs/pred_Gaza20249.csv"
     GOLD_PATH = "data/gold_Gaza20249.csv"
 
+    # Normalize data
     df_pred = normalize_dataframe(pd.read_csv(PRED_PATH))
     df_gold = normalize_dataframe(pd.read_csv(GOLD_PATH))
 
@@ -38,10 +36,10 @@ if __name__ == "__main__":
     print("Shape   :", df_pred.shape)
     print(df_pred.head(2))
 
-    # ── Sanity diff check ─────────────────────────────────────────────
+    # Sanity diff check
     diff_check(df_pred, df_gold, ["is_missing", "names", "location", "dates", "age"])
 
-    # ── Run evaluations ───────────────────────────────────────────────
+    # Run evaluations
     results = []
     results.append(evaluate_classification(df_pred, df_gold))
     results.extend(evaluate_ner(df_pred, df_gold))
@@ -49,12 +47,12 @@ if __name__ == "__main__":
     results.append(evaluate_translation(df_pred, df_gold))
     results.append(evaluate_pseudonymization(df_pred, df_gold))
 
-    # ── Display & save ────────────────────────────────────────────────
+    # Display & save results
     results_df = pd.DataFrame(results)
 
-    print("\n===== FINAL EVALUATION RESULTS =====\n")
+    print("FINAL EVALUATION RESULTS")
     print(results_df.to_string(index=False))
 
     results_df.to_csv("outputs/evaluation_nlp.csv", index=False, encoding="utf-8")
-    print("\nSaved → outputs/evaluation_nlp.csv")
+    print("Saved → outputs/evaluation_nlp.csv")
 

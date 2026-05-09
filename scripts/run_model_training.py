@@ -1,5 +1,7 @@
+# Import libraries 
 from src.nlp.classification import train_model
 
+# Run the training script
 if __name__ == "__main__":
     best_model_path, tokenizer = train_model(
         data_path="data/annotated_final.xlsx",

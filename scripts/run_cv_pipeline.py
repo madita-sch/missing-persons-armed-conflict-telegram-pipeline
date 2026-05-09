@@ -19,6 +19,7 @@ from src.cv.image_similarity import get_embedding
 # Load data
 image_items = load_valid_images("data/images")
 
+# Initialize results list and embeddings list
 results = []
 embeddings = []
 

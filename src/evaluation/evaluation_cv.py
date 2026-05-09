@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 
-# Define evaluation functions
+# Define evaluation functions for cv
 def hex_to_rgb(hex_color):
     if hex_color is None or hex_color == "" or pd.isna(hex_color):
         return None

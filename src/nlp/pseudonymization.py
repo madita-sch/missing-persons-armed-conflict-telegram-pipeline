@@ -3,6 +3,7 @@ import re
 import pandas as pd
 from collections import defaultdict
 
+# Initialize slack as tolerance window, allowing fuzzy matching of len(name_tokens) + SLACK
 SLACK = 2 
 
 # Normalization of arabic text

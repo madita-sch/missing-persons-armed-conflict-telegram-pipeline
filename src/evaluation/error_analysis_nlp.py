@@ -1,13 +1,4 @@
-"""
-error_analysis_nlp2.py
-======================
-Fixed error analysis with:
-- Correct column alignment after merge (no missing *_gold cols in NER)
-- Pseudonymization: arabic_fragment leaks removed (whole text is Arabic — not meaningful)
-- Translation: BLEU as percentage, low-BLEU threshold flag
-- Formatted Excel output with frozen panes, column widths, color coding
-"""
-
+# Import libraries
 import re
 import pandas as pd
 from openpyxl import load_workbook
@@ -17,14 +8,7 @@ from openpyxl.styles import (
 from openpyxl.utils import get_column_letter
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 
-# ── helpers expected from evaluation_nlp ────────────────────────────────────
-# (imported in run script; repeated here as fallback signatures for reference)
-# from src.evaluation.evaluation_nlp import split_entities, is_match, normalize_dataframe
-
-
-# ============================================================
-# STYLE HELPERS
-# ============================================================
+# Style helpers to ensure formatting across all sheets to better read errors in final output
 HEADER_FILL  = PatternFill("solid", fgColor="2F4F8F")   # dark blue
 HEADER_FONT  = Font(bold=True, color="FFFFFF", name="Arial", size=10)
 FP_FILL      = PatternFill("solid", fgColor="FFE0E0")   # light red  → False Positive
@@ -39,7 +23,7 @@ THIN_BORDER  = Border(
     bottom=Side(style="thin", color="CCCCCC")
 )
 
-
+# Define helper functions for Excel formatting
 def _header_row(ws, cols):
     ws.append(cols)
     for cell in ws[ws.max_row]:
@@ -60,11 +44,6 @@ def _freeze(ws, cell="B2"):
 
 
 def _style_rows(ws, start_row, fill_map_col=None, fill_map=None, default_fill=None):
-    """
-    Apply alternating row style + optional fill based on a column value.
-    fill_map_col: 1-based column index to read value from
-    fill_map: dict {value: PatternFill}
-    """
     alt_fill = PatternFill("solid", fgColor="F7F9FC")
     for i, row in enumerate(ws.iter_rows(min_row=start_row, max_row=ws.max_row)):
         row_fill = alt_fill if i % 2 == 0 else None
@@ -80,15 +59,13 @@ def _style_rows(ws, start_row, fill_map_col=None, fill_map=None, default_fill=No
             cell.font = Font(name="Arial", size=9)
 
 
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
+# Create main function that builds the error analysis report with multiple sheets for different error types (classification, NER, translation, pseudonymization leaks) and a full debug sheet with all data side-by-side for manual review.
 def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_analysis_nlp.xlsx"):
     from src.evaluation.evaluation_nlp import split_entities, is_match
 
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    # ── 1. CLASSIFICATION ERRORS ────────────────────────────────────────────
+    # Classification errors: where is_missing_pred ≠ is_missing_gold
     cls = merged[merged["is_missing_pred"] != merged["is_missing_gold"]][[
         "id",
         "is_missing_pred", "is_missing_gold",
@@ -100,7 +77,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
         else "FN_missing (pred=0, gold=1)", axis=1
     )
 
-    # ── 2. NER ERRORS ────────────────────────────────────────────────────────
+    # NER errors: where entities in pred vs gold don't match (split by type: names, location, dates, age)
     ner_rows = []
     ctx_cols = [
         "text_clean_pred", "text_clean_gold",
@@ -143,7 +120,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
 
     ner = pd.DataFrame(ner_rows)
 
-    # ── 3. TRANSLATION ERRORS ────────────────────────────────────────────────
+    # Translation errors: computes BLEU score between text_clean_en_pred vs text_clean_en_gold, flags low-quality translations
     smoother = SmoothingFunction().method1
     trans_rows = []
     for _, row in merged.iterrows():
@@ -164,10 +141,10 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
         })
     translation = pd.DataFrame(trans_rows).sort_values("bleu_score")
 
-    # ── 4. PSEUDONYMIZATION LEAKS ────────────────────────────────────────────
-    # arabic_fragment removed: the entire text is Arabic — every token would
-    # fire. Only actionable leaks: real name strings & phone numbers.
+    # Pseudonymization leaks: flags rows where predicted names (names_pred) appear in the text_clean_anon_pred
+    # Define regex pattern for phone numbers (simple heuristic: sequences of 8-15 digits)
     phone_pattern = re.compile(r"\b\d{8,15}\b")
+    # Define function to check for leaks in a single row
     leak_rows = []
 
     for _, row in merged.iterrows():
@@ -199,7 +176,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
 
     leak = pd.DataFrame(leak_rows)
 
-    # ── 5. FULL DEBUG TABLE ──────────────────────────────────────────────────
+    # Create full debug sheet with all relevant columns side-by-side for manual review
     full_cols = [
         "id",
         "is_missing_pred", "is_missing_gold",
@@ -212,7 +189,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
     ]
     full = merged[[c for c in full_cols if c in merged.columns]]
 
-    # ── EXPORT ───────────────────────────────────────────────────────────────
+    # Export data in one Excel file with separate sheets by type of error
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         cls.to_excel(writer,         sheet_name="classification",    index=False)
         ner.to_excel(writer,         sheet_name="ner_errors",        index=False)
@@ -221,7 +198,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
         full.to_excel(writer,        sheet_name="full_debug",        index=False)
 
     _format_excel(output_path)
-    print(f"✅  Saved → {output_path}")
+    print(f"Saved → {output_path}")
 
     return {
         "classification": cls,
@@ -232,13 +209,11 @@ def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_ana
     }
 
 
-# ============================================================
-# EXCEL FORMATTING PASS
-# ============================================================
+# Formatting Excel
 def _format_excel(path):
     wb = load_workbook(path)
 
-    # ── CLASSIFICATION ───────────────────────────────────────────────────────
+    # Format classification sheet
     ws = wb["classification"]
     _freeze(ws, "C2")
     _set_col_widths(ws, {
@@ -256,7 +231,7 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 60
 
-    # ── NER ERRORS ───────────────────────────────────────────────────────────
+    # Format NER errors sheet
     ws = wb["ner_errors"]
     _freeze(ws, "E2")
     _set_col_widths(ws, {
@@ -300,7 +275,7 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 55
 
-    # ── TRANSLATION ──────────────────────────────────────────────────────────
+    # Format translation sheet
     ws = wb["translation"]
     _freeze(ws, "D2")
     _set_col_widths(ws, {
@@ -326,7 +301,7 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 60
 
-    # ── PSEUDONYMIZATION ─────────────────────────────────────────────────────
+    # Format Pseudonymization sheet
     ws = wb["pseudonymization"]
     _freeze(ws, "C2")
     _set_col_widths(ws, {
@@ -352,7 +327,7 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 65
 
-    # ── FULL DEBUG ───────────────────────────────────────────────────────────
+    # Format full debug sheet
     ws = wb["full_debug"]
     _freeze(ws, "D2")
     _set_col_widths(ws, {
@@ -376,7 +351,7 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 60
 
-    # ── LEGEND SHEET ─────────────────────────────────────────────────────────
+    # Create a legend sheet for the error analysis
     leg = wb.create_sheet("LEGEND", 0)
     leg.sheet_view.showGridLines = False
     leg.column_dimensions["A"].width = 22

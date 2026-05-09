@@ -175,11 +175,6 @@ def predict_ner_groq(
     text_col: str = "text_clean",
     delay_between_calls: float = 0.5,
 ) -> list[dict]:
-    """
-    Run Groq NER on every row. Returns a list of dicts (one per row).
-    delay_between_calls: seconds between API calls.
-    Groq free tier allows ~30 requests/minute for this model.
-    """
     results = []
     texts = df[text_col].fillna("").astype(str).tolist()
 

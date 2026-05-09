@@ -22,7 +22,7 @@ def extract_shirt_region(image, face_bbox):
 
     return None
 
-
+# Define function to extract dominant color
 def dominant_color(image):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pixels = image.reshape(-1, 3).astype(np.float32)

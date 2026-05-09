@@ -1,12 +1,11 @@
+# Import libraries
 from dash import Dash, html, dcc, Input, Output, State, dash_table, callback_context, no_update
 import psycopg2
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ─────────────────────────────────────────────
-# DB CONNECTION
-# ─────────────────────────────────────────────
+# Connect to Database
 def get_conn():
     return psycopg2.connect(
         dbname="missing_persons",
@@ -16,9 +15,7 @@ def get_conn():
         port="5432"
     )
 
-# ─────────────────────────────────────────────
-# DATA FUNCTIONS
-# ─────────────────────────────────────────────
+# Define database query functions
 def get_all_cases():
     conn = get_conn()
     cur = conn.cursor()
@@ -94,7 +91,7 @@ def get_case(case_id):
     cur.close()
     conn.close()
 
-    # 🔥 BUILD TELEGRAM LINKS HERE
+    # Build telegram links
     messages = []
     for r in rows:
         message_id = r[0]
@@ -115,7 +112,7 @@ def get_case(case_id):
     return case, messages
 
 
-
+# Create function to create KPIs
 def get_kpis():
     conn = get_conn()
     cur = conn.cursor()
@@ -133,7 +130,7 @@ def get_kpis():
     conn.close()
     return total_cases, active_cases, messages
 
-
+# Create function to get analytics data
 def get_analytics_data():
     conn = get_conn()
     cur = conn.cursor()
@@ -148,10 +145,11 @@ def get_analytics_data():
     """)
     loc_rows = cur.fetchall()
 
-    # Messages over time
+    # Messages over time  (only missing=true)
     cur.execute("""
         SELECT DATE_TRUNC('week', posted_at) AS week, COUNT(*) AS cnt
         FROM messages
+        WHERE is_missing = TRUE
         GROUP BY week
         ORDER BY week
     """)
@@ -180,9 +178,7 @@ def get_analytics_data():
     return loc_rows, msg_rows, cases_by_day_rows, total_cases, total_messages
 
 
-# ─────────────────────────────────────────────
-# STYLING CONSTANTS
-# ─────────────────────────────────────────────
+# Define constants for stying, coloring, etc.
 SIDEBAR_BG   = "#0F172A"
 ACCENT       = "#3B82F6"
 ACCENT_GREEN = "#10B981"
@@ -199,6 +195,7 @@ GOOGLE_FONT = html.Link(
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
 )
 
+# Define reusable components like cards, tables, etc.
 def card(children, style=None):
     base = {
         "backgroundColor": CARD_BG,
@@ -211,7 +208,7 @@ def card(children, style=None):
         base.update(style)
     return html.Div(children, style=base)
 
-
+# KPI card component
 def kpi_card(title, value, color, icon):
     return html.Div([
         html.Div([
@@ -238,12 +235,10 @@ def kpi_card(title, value, color, icon):
     })
 
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
+# Define helpers for building tables, charts, and other components
 def build_cases_table(df, table_id="results-table"):
     """Render a styled DataTable for a cases dataframe."""
-    # Custom column name mapping
+    # Column name mapping
     name_mapping = {
         "case_id": "Case ID",
         "name_ar": "Name (Ar)",
@@ -326,9 +321,7 @@ def build_cases_table(df, table_id="results-table"):
     )
 
 
-# ─────────────────────────────────────────────
-# LAYOUT
-# ─────────────────────────────────────────────
+# Layout
 NAV_ITEM_STYLE = {
     "padding": "12px 16px",
     "cursor": "pointer",
@@ -343,13 +336,15 @@ NAV_ITEM_STYLE = {
     "fontFamily": FONT,
 }
 
+# Initialize Dash app
 app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Missing Persons Dashboard"
 
+# Define the main layout of the app, which will be rendered after login
 def get_main_layout():
     return html.Div([
 
-        # ── SIDEBAR ──────────────────────────────────
+        # Create a sidebar
         html.Div([
             html.Div([
                 html.Div("🔍", style={"fontSize": "24px"}),
@@ -388,7 +383,7 @@ def get_main_layout():
             "zIndex": "100",
         }),
 
-        # ── MAIN AREA ────────────────────────────────
+        # Create Main area
         html.Div([
             html.Div(id="page-content")
         ], style={
@@ -400,7 +395,7 @@ def get_main_layout():
             "fontFamily": FONT,
         }),
 
-        # ── HIDDEN STORES ────────────────────────────
+        # Hidden stores for inter-component communication
         dcc.Store(id="active-page", data="cases"),
         dcc.Store(id="selected-case-id", data=None),
         dcc.Store(id="search-performed", data=False),
@@ -415,9 +410,7 @@ app.layout = html.Div([
 ])
 
 
-# ─────────────────────────────────────────────
-# LOGIN CALLBACK
-# ─────────────────────────────────────────────
+# Login Callback
 @app.callback(
     [Output("logged_in", "data"), Output("login-error-store", "data")],
     Input("login-btn", "n_clicks"),
@@ -431,9 +424,7 @@ def login(n_clicks, password):
         return False, "Incorrect password. Try again."
 
 
-# ─────────────────────────────────────────────
-# RENDER APP CONTENT
-# ─────────────────────────────────────────────
+# Callback for logged-in content rendering
 @app.callback(
     Output("app-content", "children"),
     Input("logged_in", "data"),
@@ -464,9 +455,7 @@ def render_app_content(logged_in, error_msg):
         return get_main_layout()
 
 
-# ─────────────────────────────────────────────
-# NAV → PAGE ROUTING
-# ─────────────────────────────────────────────
+# Callback for navigation and page rendering
 @app.callback(
     Output("active-page", "data"),
     Input("nav-cases-btn", "n_clicks"),
@@ -480,7 +469,6 @@ def update_active_page(cases_clicks, analytics_clicks):
     if "nav-analytics-btn" in triggered:
         return "analytics"
     return no_update
-
 
 @app.callback(
     Output("page-content", "children"),
@@ -578,7 +566,7 @@ def render_page(page):
                 kpi_card("Messages",   messages, ACCENT_GREEN, "💬"),
             ], style={"display": "flex", "gap": "16px", "marginBottom": "28px"}),
 
-            # ── Full cases list ───────────────────
+            # Full cases table (hidden when search results are shown)
             html.Div(id="all-cases-section", children=[
                 card([
                     html.Div("All Cases", style={
@@ -599,7 +587,7 @@ def render_page(page):
             html.Div(id="case-detail"),
         ])
 
-    # ── ANALYTICS PAGE ───────────────────────────
+    # Analytics page
     if page == "analytics":
         try:
             loc_rows, msg_rows, cases_by_day_rows, total_cases, total_messages = get_analytics_data()
@@ -705,9 +693,7 @@ def render_page(page):
     return html.Div("Select a section from the sidebar.")
 
 
-# ─────────────────────────────────────────────
-# SEARCH CALLBACK
-# ─────────────────────────────────────────────
+# Callback for search
 @app.callback(
     [Output("search-output", "children"), Output("search-performed", "data")],
     Input("search-btn", "n_clicks"),
@@ -736,9 +722,7 @@ def run_search(n_clicks, query):
     ]), True
 
 
-# ─────────────────────────────────────────────
-# ALL CASES VISIBILITY CALLBACK
-# ─────────────────────────────────────────────
+# Callback for all cases
 @app.callback(
     Output("all-cases-section", "style"),
     Input("search-performed", "data")
@@ -749,9 +733,7 @@ def toggle_all_cases_visibility(search_performed):
     return {}  # Show by default
 
 
-# ─────────────────────────────────────────────
-# CASE DETAIL CALLBACK
-# ─────────────────────────────────────────────
+# Callback for showing case details when a row is selected from all_cases table
 @app.callback(
     Output("case-detail", "children"),
     Input("results-table", "selected_rows"),
@@ -776,7 +758,7 @@ def show_case(selected_rows, table_data):
     def safe(val):
         return val if val else "—"
 
-    # Include both Arabic and English location (indices 3 and 4)
+    # Include the following rows in the case profile, with safe handling for missing/empty values
     info_rows = [
         ("Case ID",          safe(case[0])),
         ("Name (AR)",        safe(case[1])),
@@ -806,7 +788,7 @@ def show_case(selected_rows, table_data):
         ])
     ], style={"marginTop": "24px", "marginBottom": "16px"})
 
-    # ── Messages table (replaces chart) ──────────
+    # Messages table
     if messages:
         df_m = pd.DataFrame(messages)
         df_m["posted_at"] = pd.to_datetime(df_m["posted_at"]).dt.strftime("%Y-%m-%d")
@@ -911,8 +893,6 @@ def show_case(selected_rows, table_data):
     return html.Div([profile, msg_section])
 
 
-# ─────────────────────────────────────────────
-# RUN
-# ─────────────────────────────────────────────
+# Run the app
 if __name__ == "__main__":
     app.run(debug=True)

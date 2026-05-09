@@ -8,6 +8,8 @@ from src.nlp.translation import apply_translation_to_df
 from src.nlp.clustering import normalize, build_graph, extract_clusters
 from src.nlp.pseudonymization import pseudonymize_dataframe
 
+# Define main pipeline function merging all steps (classification, NER, translation, clustering, pseudonymization)
+# Adapt input and output paths, and sample_size as needed
 def run_nlp_pipeline(
     input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
     output_path="outputs/pred_ALMAFKODEN.csv",
@@ -32,7 +34,7 @@ def run_nlp_pipeline(
     # Sequence classification
     df["is_missing"] = predict(model_path, df["text_clean"].tolist())
     print(f"Found {df['is_missing'].sum()} potential cases")
-    save_checkpoint(df, "classification")           # ← CHECKPOINT 1
+    save_checkpoint(df, "classification")           # Checkpoint saved after classification
 
     # NER
     if run_ner:
@@ -53,7 +55,7 @@ def run_nlp_pipeline(
         else:
             df[col] = df[col].fillna("")
 
-    save_checkpoint(df, "ner")                      # ← CHECKPOINT 2
+    save_checkpoint(df, "ner")                      # Checkpoint saved after NER
 
     # Translation
     if run_translation:
@@ -76,7 +78,7 @@ def run_nlp_pipeline(
             traceback.print_exc()
             print(f"Translation failed: {e}")
 
-    save_checkpoint(df, "translation")              # ← CHECKPOINT 3
+    save_checkpoint(df, "translation")              # Checkpoint saved after translation
 
     # Clustering
     if run_clustering:
@@ -95,7 +97,7 @@ def run_nlp_pipeline(
             print(f"Clustering failed: {e}")
             df["cluster_id"] = -1
 
-    save_checkpoint(df, "clustering")              # ← CHECKPOINT 4
+    save_checkpoint(df, "clustering")              # Checkpoint saved after clustering
 
     # Pseudonymization
     try:
@@ -121,7 +123,7 @@ def run_nlp_pipeline(
 
     return df
 
-
+# Run the pipeline
 if __name__ == "__main__":
     run_nlp_pipeline(
     input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
