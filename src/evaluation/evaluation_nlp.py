@@ -36,6 +36,7 @@ def split_entities(text):
         return []
     return [normalize_arabic(e) for e in str(text).split(";") if e.strip()]
 
+
 # Create Fuzzy match function, robust to Arabic orthographic variation
 def is_match(a, b, threshold=90):
     a = normalize_arabic(a)
@@ -48,13 +49,11 @@ def is_match(a, b, threshold=90):
         return True
     return False
 
+
 # Alignment-based P/R/F1 with fuzzy matching
 def score_entities(pred_list, gold_list):
-    # Both empty, then nothing to evaluate for this row
     if not pred_list and not gold_list:
         return None, None, None
-
-    # One side empty, then all FP or all FN
     if not pred_list:
         return 0.0, 0.0, 0.0
     if not gold_list:
@@ -83,7 +82,7 @@ def score_entities(pred_list, gold_list):
     return precision, recall, f1
 
 
-# Evaluate classification function
+# Evaluate classification function — runs on ALL rows (by design)
 def evaluate_classification(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -92,31 +91,36 @@ def evaluate_classification(df_pred, df_gold):
         y_pred = merged["is_missing_pred"].astype(int)
 
         return {
-            "task": "classification",
-            "entity": "-",
-            "accuracy":     accuracy_score(y_true, y_pred),
-            "f1_macro":     f1_score(y_true, y_pred, average="macro"),
-            "f1_weighted":  f1_score(y_true, y_pred, average="weighted"),
-            "precision":    None,
-            "recall":       None,
-            "f1":           None,
+            "task":        "classification",
+            "entity":      "-",
+            "n_eval":      len(merged),
+            "accuracy":    accuracy_score(y_true, y_pred),
+            "f1_macro":    f1_score(y_true, y_pred, average="macro"),
+            "f1_weighted": f1_score(y_true, y_pred, average="weighted"),
+            "precision":   None,
+            "recall":      None,
+            "f1":          None,
         }
     except KeyError:
         return {
-            "task": "classification",
-            "entity": "-",
-            "accuracy":     float("nan"),
-            "f1_macro":     float("nan"),
-            "f1_weighted":  float("nan"),
-            "precision":    None,
-            "recall":       None,
-            "f1":           None,
+            "task":        "classification",
+            "entity":      "-",
+            "n_eval":      0,
+            "accuracy":    float("nan"),
+            "f1_macro":    float("nan"),
+            "f1_weighted": float("nan"),
+            "precision":   None,
+            "recall":      None,
+            "f1":          None,
         }
 
 
-# Evaluate NER function
+# Evaluate NER function — runs only on gold is_missing == 1 rows
 def evaluate_ner(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
+
+    # Filter to rows where gold says is_missing == 1
+    merged = merged[merged["is_missing_gold"] == 1]
 
     try:
         results = []
@@ -127,13 +131,13 @@ def evaluate_ner(df_pred, df_gold):
                 pred = split_entities(row[f"{col}_pred"])
                 gold = split_entities(row[f"{col}_gold"])
                 p, r, f = score_entities(pred, gold)
-                if p is None:          # both sides empty → skip row
+                if p is None:  # both sides empty → skip row
                     continue
                 precisions.append(p)
                 recalls.append(r)
                 f1s.append(f)
 
-            n = len(f1s)  # rows where at least one side was non-empty
+            n = len(f1s)
             results.append({
                 "task":        "NER",
                 "entity":      col,
@@ -164,89 +168,118 @@ def evaluate_ner(df_pred, df_gold):
         ]
 
 
-# Evaluate Clustering function
+# Evaluate clustering function — runs only on gold is_missing == 1 rows
 def evaluate_clustering(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
+    # Filter to rows where gold says is_missing == 1
+    missing_only = merged[merged["is_missing_gold"] == 1].copy()
+    missing_only["cluster_id_gold"] = missing_only["cluster_id_gold"].fillna(-1).astype(int)
+    missing_only["cluster_id_pred"] = missing_only["cluster_id_pred"].fillna(-1).astype(int)
+
     try:
         return {
-            "task":    "clustering",
-            "entity":  "-",
-            "ARI":     adjusted_rand_score(
-                merged["cluster_id_gold"],
-                merged["cluster_id_pred"],
+            "task":     "clustering",
+            "entity":   "-",
+            "n_eval":   len(missing_only),
+            "ARI":      adjusted_rand_score(
+                missing_only["cluster_id_gold"],
+                missing_only["cluster_id_pred"],
             ),
             "accuracy": None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
     except KeyError:
         return {
-            "task":    "clustering",
-            "entity":  "-",
-            "ARI":     float("nan"),
+            "task":     "clustering",
+            "entity":   "-",
+            "n_eval":   0,
+            "ARI":      float("nan"),
             "accuracy": None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
 
 
-# Evaluate translation function
+# Evaluate translation function — runs only on gold is_missing == 1 rows
 def evaluate_translation(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
+    # Filter to rows where gold says is_missing == 1
+    missing_only = merged[merged["is_missing_gold"] == 1]
+
     try:
         scores = []
-        for _, row in merged.iterrows():
-            ref_text = str(row.get("text_clean_en_gold", "")).strip()
+        for _, row in missing_only.iterrows():
+            ref_text  = str(row.get("text_clean_en_gold", "")).strip()
             pred_text = str(row.get("text_clean_en_pred", "")).strip()
 
-            ref  = ref_text.split() if ref_text else []
+            ref  = ref_text.split()  if ref_text  else []
             pred = pred_text.split() if pred_text else []
 
             if ref and pred:
                 scores.append(sentence_bleu([ref], pred))
 
         return {
-            "task":    "translation",
-            "entity":  "-",
-            "BLEU":    float(np.mean(scores)) if scores else 0.0,
+            "task":     "translation",
+            "entity":   "-",
+            "n_eval":   len(missing_only),
+            "BLEU":     float(np.mean(scores)) if scores else 0.0,
             "accuracy": None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
     except KeyError:
         return {
-            "task":    "translation",
-            "entity":  "-",
-            "BLEU":    float("nan"),
+            "task":     "translation",
+            "entity":   "-",
+            "n_eval":   0,
+            "BLEU":     float("nan"),
             "accuracy": None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
 
 
-# Evaluate Pseudonymization function
+# Evaluate pseudonymization function — runs only on gold is_missing == 1 rows
 def evaluate_pseudonymization(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
+    missing_only = merged[merged["is_missing_gold"] == 1].copy()
 
     try:
-        leakage = merged["text_clean_anon_pred"].str.contains(
-            r"[A-Za-z\u0600-\u06FF]{4,}", na=False
-        ).sum()
-        total = len(merged)
+        total = len(missing_only)
+        leaked = 0
+
+        for _, row in missing_only.iterrows():
+            anon_text = str(row.get("text_clean_anon_pred", "") or "")
+            
+            # Check if any gold name survived (fuzzy match against anonymized text)
+            gold_names = [n.strip() for n in str(row.get("names_gold", "") or "").split(";") if n.strip()]
+            name_leaked = any(
+                name in anon_text or
+                any(token in anon_text for token in name.split() if len(token) > 3)
+                for name in gold_names
+            )
+
+            # Check if any raw phone number survived (digits 7+ long)
+            phone_leaked = bool(re.search(r'\d{7,}', anon_text))
+
+            if name_leaked or phone_leaked:
+                leaked += 1
 
         return {
             "task":      "pseudonymization",
             "entity":    "-",
-            "leak_rate": leakage / total,
-            "coverage":  1 - (leakage / total),
-            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "n_eval":    total,
+            "leak_rate": leaked / total if total > 0 else float("nan"),
+            "coverage":  1 - (leaked / total) if total > 0 else float("nan"),
+            "accuracy":  None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
     except KeyError:
         return {
             "task":      "pseudonymization",
             "entity":    "-",
+            "n_eval":    0,
             "leak_rate": float("nan"),
             "coverage":  float("nan"),
-            "accuracy": None, "f1_macro": None, "f1_weighted": None,
+            "accuracy":  None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,
         }
-

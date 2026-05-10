@@ -43,3 +43,19 @@ def evaluate_names(df):
     cm = confusion_matrix(valid["gt_name"], valid["pred_name"])
 
     return report, cm
+
+
+def evaluate_similarity(sim_df, gt_pairs, threshold=0.9):
+    sim_df["pred_same"] = sim_df["similarity"] > threshold
+
+    merged = gt_pairs.merge(
+        sim_df,
+        left_on=["img1", "img2"],
+        right_on=["img1", "img2"],
+        how="left"
+    )
+
+    merged["correct"] = merged["pred_same"] == merged["same_person"]
+
+    accuracy = merged["correct"].mean()
+    return accuracy, merged

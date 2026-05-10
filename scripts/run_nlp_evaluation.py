@@ -20,7 +20,6 @@ def diff_check(df_pred, df_gold, cols):
             print(f"  {col}: {diff} differing rows out of {len(merged)}")
     print()
 
-
 # Run evaluations
 if __name__ == "__main__":
 
@@ -31,6 +30,11 @@ if __name__ == "__main__":
     # Normalize data
     df_pred = normalize_dataframe(pd.read_csv(PRED_PATH))
     df_gold = normalize_dataframe(pd.read_csv(GOLD_PATH))
+
+    # Fix types after normalization (normalize_dataframe casts everything to str)
+    for df in [df_pred, df_gold]:
+        df["is_missing"] = pd.to_numeric(df["is_missing"], errors="coerce").fillna(0).astype(int)
+        df["cluster_id"] = pd.to_numeric(df["cluster_id"], errors="coerce").fillna(-1).astype(int)
 
     print("Columns :", df_pred.columns.tolist())
     print("Shape   :", df_pred.shape)
@@ -53,6 +57,5 @@ if __name__ == "__main__":
     print("FINAL EVALUATION RESULTS")
     print(results_df.to_string(index=False))
 
-    results_df.to_csv("outputs/evaluation_nlp.csv", index=False, encoding="utf-8")
-    print("Saved → outputs/evaluation_nlp.csv")
-
+    results_df.to_csv("outputs/evaluation_nlp_Gaza20249.csv", index=False, encoding="utf-8")
+    print("Saved → outputs/evaluation_nlp_Gaza20249.csv")

@@ -60,7 +60,7 @@ def _style_rows(ws, start_row, fill_map_col=None, fill_map=None, default_fill=No
 
 
 # Create main function that builds the error analysis report with multiple sheets for different error types (classification, NER, translation, pseudonymization leaks) and a full debug sheet with all data side-by-side for manual review.
-def build_error_analysis_report(df_pred, df_gold, output_path="outputs/error_analysis_nlp.xlsx"):
+def build_error_analysis_report(df_pred, df_gold, output_path):
     from src.evaluation.evaluation_nlp import split_entities, is_match
 
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))

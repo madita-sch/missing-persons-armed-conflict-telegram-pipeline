@@ -14,6 +14,7 @@ def normalize_arabic(text):
 
     text = re.sub(r"[-ـ]+", "-", text)
     text = re.sub(r"[آأإ]", "ا", text)
+    # Punctuation and symbol removal
     text = re.sub(r"[^\w\sء-ي]", " ", text)
 
     return text
