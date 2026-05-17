@@ -9,15 +9,16 @@ from openpyxl.utils import get_column_letter
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 
 # Style helpers to ensure formatting across all sheets to better read errors in final output
-HEADER_FILL  = PatternFill("solid", fgColor="2F4F8F")   # dark blue
-HEADER_FONT  = Font(bold=True, color="FFFFFF", name="Arial", size=10)
-FP_FILL      = PatternFill("solid", fgColor="FFE0E0")   # light red  → False Positive
-FN_FILL      = PatternFill("solid", fgColor="FFF3CD")   # light amber → False Negative
-LOW_BLEU     = PatternFill("solid", fgColor="FFD0D0")   # red tint   → BLEU < 0.05
-MED_BLEU     = PatternFill("solid", fgColor="FFF3CD")   # amber      → 0.05–0.30
-OK_FILL      = PatternFill("solid", fgColor="DFF0D8")   # green tint → good
-LEAK_FILL    = PatternFill("solid", fgColor="FFE0E0")
-CLS_FILL     = PatternFill("solid", fgColor="E8D5F5")   # purple tint
+HEADER_FILL    = PatternFill("solid", fgColor="2F4F8F")   # dark blue
+HEADER_FONT    = Font(bold=True, color="FFFFFF", name="Arial", size=10)
+FP_FILL        = PatternFill("solid", fgColor="FFE0E0")   # light red  → False Positive
+FN_FILL        = PatternFill("solid", fgColor="FFF3CD")   # light amber → False Negative
+LOW_BLEU       = PatternFill("solid", fgColor="FFD0D0")   # red tint   → BLEU < 0.05
+MED_BLEU       = PatternFill("solid", fgColor="FFF3CD")   # amber      → 0.05–0.30
+OK_FILL        = PatternFill("solid", fgColor="DFF0D8")   # green tint → good
+LEAK_FILL      = PatternFill("solid", fgColor="FFE0E0")
+CLS_FILL       = PatternFill("solid", fgColor="E8D5F5")   # purple tint
+CLUSTER_FILL   = PatternFill("solid", fgColor="D6EAF8")   # light blue → clustering errors
 
 THIN_BORDER  = Border(
     bottom=Side(style="thin", color="CCCCCC")
@@ -59,13 +60,36 @@ def _style_rows(ws, start_row, fill_map_col=None, fill_map=None, default_fill=No
             cell.font = Font(name="Arial", size=9)
 
 
-# Create main function that builds the error analysis report with multiple sheets for different error types (classification, NER, translation, pseudonymization leaks) and a full debug sheet with all data side-by-side for manual review.
+# Create main function that builds the error analysis report with multiple sheets
+# for different error types (classification, NER, translation, clustering,
+# pseudonymization leaks) and a full debug sheet with all data side-by-side.
+#
+# FILTERING LOGIC:
+# - classification:    all rows (no filter — this IS the classification step)
+# - NER:               gold=1 AND pred=1 only
+# - translation:       gold=1 AND pred=1 only
+# - clustering_errors: gold=1 AND pred=1 only
+# - pseudonymization:  gold=1 AND pred=1 only
+# - full_debug:        gold=1 AND pred=1 only
 def build_error_analysis_report(df_pred, df_gold, output_path):
     from src.evaluation.evaluation_nlp import split_entities, is_match
 
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
-    # Classification errors: where is_missing_pred ≠ is_missing_gold
+    # ── Downstream filter ────────────────────────────────────────────────────
+    # For NER, translation, clustering, and pseudonymization we only evaluate
+    # rows where:
+    #   • gold is_missing == 1  → message is genuinely a missing persons report
+    #   • pred is_missing == 1  → classifier correctly identified it as such
+    # This isolates errors that belong to each downstream step rather than
+    # inflating error counts with upstream classification mistakes.
+    downstream = merged[
+        (merged["is_missing_gold"] == 1) &
+        (merged["is_missing_pred"] == 1)
+    ].copy()
+
+    # ── Classification errors ────────────────────────────────────────────────
+    # No filter here — classification errors ARE the comparison between pred and gold.
     cls = merged[merged["is_missing_pred"] != merged["is_missing_gold"]][[
         "id",
         "is_missing_pred", "is_missing_gold",
@@ -77,7 +101,10 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
         else "FN_missing (pred=0, gold=1)", axis=1
     )
 
-    # NER errors: where entities in pred vs gold don't match (split by type: names, location, dates, age)
+    # ── NER errors ───────────────────────────────────────────────────────────
+    # Uses downstream filter: gold=1 AND pred=1.
+    # Only flags entity-level mismatches on messages the classifier got right,
+    # so errors reflect NER model behaviour, not classification mistakes.
     ner_rows = []
     ctx_cols = [
         "text_clean_pred", "text_clean_gold",
@@ -91,7 +118,7 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
         "dates_en_pred", "dates_en_gold",
     ]
 
-    for _, row in merged.iterrows():
+    for _, row in downstream.iterrows():
         for col in ["names", "location", "dates", "age"]:
             pred = split_entities(row[f"{col}_pred"])
             gold = split_entities(row[f"{col}_gold"])
@@ -120,10 +147,13 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
 
     ner = pd.DataFrame(ner_rows)
 
-    # Translation errors: computes BLEU score between text_clean_en_pred vs text_clean_en_gold, flags low-quality translations
+    # ── Translation errors ───────────────────────────────────────────────────
+    # Uses downstream filter: gold=1 AND pred=1.
+    # Translation only applies to missing persons messages, and we only want
+    # to evaluate translation quality on messages the classifier handled correctly.
     smoother = SmoothingFunction().method1
     trans_rows = []
-    for _, row in merged.iterrows():
+    for _, row in downstream.iterrows():
         ref  = str(row.get("text_clean_en_gold", "")).split()
         pred = str(row.get("text_clean_en_pred", "")).split()
         if not ref or not pred:
@@ -141,13 +171,80 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
         })
     translation = pd.DataFrame(trans_rows).sort_values("bleu_score")
 
-    # Pseudonymization leaks: flags rows where predicted names (names_pred) appear in the text_clean_anon_pred
-    # Define regex pattern for phone numbers (simple heuristic: sequences of 8-15 digits)
+    # ── Clustering errors ────────────────────────────────────────────────────
+    # Uses downstream filter: gold=1 AND pred=1.
+    # Flags rows where predicted cluster_id differs from gold cluster_id.
+    # Three error subtypes:
+    #   • wrong_cluster   — both pred and gold have a cluster but they disagree
+    #                       (messages incorrectly merged or split across clusters)
+    #   • missed_cluster  — gold assigns a cluster but pred returns -1 (singleton)
+    #                       (model failed to group a message that belongs to a cluster)
+    #   • false_cluster   — pred assigns a cluster but gold says -1
+    #                       (model incorrectly grouped a standalone message)
+    # ── Clustering errors ────────────────────────────────────────────────────
+    cluster_rows = []
+
+    # Get all rows with a cluster assignment in gold (not singletons)
+    clustered = downstream[downstream["cluster_id_gold"] != -1].copy()
+
+    # For each gold cluster, check whether pred grouped those same messages together
+    for gold_cid, group in clustered.groupby("cluster_id_gold"):
+        ids_in_gold_cluster = set(group["id"])
+
+        # What pred cluster_id did each of these messages get assigned?
+        pred_assignments = group["cluster_id_pred"].value_counts()
+
+        # If all messages in this gold cluster share the same pred cluster_id
+        # (even if the number is different), the clustering is correct
+        if len(pred_assignments) == 1 and pred_assignments.index[0] != -1:
+            continue  # correct — all grouped together under one pred cluster
+
+        # Otherwise flag each message that was split off or lost
+        dominant_pred = pred_assignments.index[0]
+        for _, row in group.iterrows():
+            if row["cluster_id_pred"] != dominant_pred:
+                error_type = "split_from_cluster" if row["cluster_id_pred"] != -1 \
+                            else "missed_cluster"
+                cluster_rows.append({
+                    "id":                 row["id"],
+                    "cluster_id_gold":    gold_cid,
+                    "cluster_id_pred":    row["cluster_id_pred"],
+                    "error_type":         error_type,
+                    "names_pred":         row.get("names_pred", ""),
+                    "names_gold":         row.get("names_gold", ""),
+                    "location_pred":      row.get("location_pred", ""),
+                    "text_clean_pred":    row.get("text_clean_pred", ""),
+                    "text_clean_en_pred": row.get("text_clean_en_pred", ""),
+                })
+
+    # Also flag false clusters: pred grouped messages that gold keeps separate
+    for pred_cid, group in downstream[downstream["cluster_id_pred"] != -1].groupby("cluster_id_pred"):
+        gold_assignments = group["cluster_id_gold"].value_counts()
+        if len(gold_assignments) > 1:
+            # Pred merged messages from different gold clusters
+            for _, row in group.iterrows():
+                cluster_rows.append({
+                    "id":                 row["id"],
+                    "cluster_id_gold":    row["cluster_id_gold"],
+                    "cluster_id_pred":    pred_cid,
+                    "error_type":         "false_merge",
+                    "names_pred":         row.get("names_pred", ""),
+                    "names_gold":         row.get("names_gold", ""),
+                    "location_pred":      row.get("location_pred", ""),
+                    "text_clean_pred":    row.get("text_clean_pred", ""),
+                    "text_clean_en_pred": row.get("text_clean_en_pred", ""),
+                })
+
+    clustering_errors = pd.DataFrame(cluster_rows).drop_duplicates(subset=["id", "error_type"])
+
+    # ── Pseudonymization leaks ───────────────────────────────────────────────
+    # Uses downstream filter: gold=1 AND pred=1.
+    # Anonymization is only applied to missing persons messages, and we evaluate
+    # leaks only on correctly classified rows to avoid noise from the classifier.
     phone_pattern = re.compile(r"\b\d{8,15}\b")
-    # Define function to check for leaks in a single row
     leak_rows = []
 
-    for _, row in merged.iterrows():
+    for _, row in downstream.iterrows():
         anon_text = str(row.get("text_clean_anon_pred", ""))
         leaks = []
 
@@ -176,10 +273,15 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
 
     leak = pd.DataFrame(leak_rows)
 
-    # Create full debug sheet with all relevant columns side-by-side for manual review
+    # ── Full debug sheet ─────────────────────────────────────────────────────
+    # Shows all rows side-by-side for manual review.
+    # Uses the downstream filter so the debug view stays consistent with the
+    # other sheets — only correctly classified missing persons messages.
+    # Includes cluster_id columns so clustering mismatches are visible inline.
     full_cols = [
         "id",
         "is_missing_pred", "is_missing_gold",
+        "cluster_id_pred", "cluster_id_gold",
         "names_pred",    "names_gold",
         "location_pred", "location_gold",
         "dates_pred",    "dates_gold",
@@ -187,25 +289,35 @@ def build_error_analysis_report(df_pred, df_gold, output_path):
         "text_clean_pred", "text_clean_gold",
         "text_clean_en_pred", "text_clean_en_gold",
     ]
-    full = merged[[c for c in full_cols if c in merged.columns]]
+    full = downstream[[c for c in full_cols if c in downstream.columns]]
+
+    # Print row counts so it is clear how many rows each sheet covers
+    print(f"  Classification errors : {len(cls)} rows  (all messages, pred ≠ gold)")
+    print(f"  NER errors            : {len(ner)} rows  (gold=1 & pred=1 only)")
+    print(f"  Translation           : {len(translation)} rows  (gold=1 & pred=1 only)")
+    print(f"  Clustering errors     : {len(clustering_errors)} rows  (gold=1 & pred=1 only)")
+    print(f"  Pseudonymization      : {len(leak)} rows  (gold=1 & pred=1 only)")
+    print(f"  Full debug            : {len(full)} rows  (gold=1 & pred=1 only)")
 
     # Export data in one Excel file with separate sheets by type of error
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        cls.to_excel(writer,         sheet_name="classification",    index=False)
-        ner.to_excel(writer,         sheet_name="ner_errors",        index=False)
-        translation.to_excel(writer, sheet_name="translation",       index=False)
-        leak.to_excel(writer,        sheet_name="pseudonymization",  index=False)
-        full.to_excel(writer,        sheet_name="full_debug",        index=False)
+        cls.to_excel(writer,               sheet_name="classification",    index=False)
+        ner.to_excel(writer,               sheet_name="ner_errors",        index=False)
+        translation.to_excel(writer,       sheet_name="translation",       index=False)
+        clustering_errors.to_excel(writer, sheet_name="clustering_errors", index=False)
+        leak.to_excel(writer,              sheet_name="pseudonymization",  index=False)
+        full.to_excel(writer,              sheet_name="full_debug",        index=False)
 
     _format_excel(output_path)
     print(f"Saved → {output_path}")
 
     return {
-        "classification": cls,
-        "ner":            ner,
-        "translation":    translation,
-        "pseudonymization": leak,
-        "full":           full,
+        "classification":    cls,
+        "ner":               ner,
+        "translation":       translation,
+        "clustering_errors": clustering_errors,
+        "pseudonymization":  leak,
+        "full":              full,
     }
 
 
@@ -301,6 +413,36 @@ def _format_excel(path):
             cell.border    = THIN_BORDER
         ws.row_dimensions[row[0].row].height = 60
 
+    # Format clustering errors sheet
+    if "clustering_errors" in wb.sheetnames:
+        ws = wb["clustering_errors"]
+        _freeze(ws, "C2")
+        _set_col_widths(ws, {
+            "A": 8,   # id
+            "B": 14,  # cluster_id_pred
+            "C": 14,  # cluster_id_gold
+            "D": 18,  # error_type
+            "E": 28,  # names_pred
+            "F": 28,  # names_gold
+            "G": 28,  # location_pred
+            "H": 28,  # location_gold
+            "I": 18,  # dates_pred
+            "J": 18,  # dates_gold
+            "K": 50,  # text_clean_pred
+            "L": 50,  # text_clean_en_pred
+        })
+        for cell in ws[1]:
+            cell.font  = HEADER_FONT
+            cell.fill  = HEADER_FILL
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                cell.fill      = CLUSTER_FILL
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.font      = Font(name="Arial", size=9)
+                cell.border    = THIN_BORDER
+            ws.row_dimensions[row[0].row].height = 55
+
     # Format Pseudonymization sheet
     ws = wb["pseudonymization"]
     _freeze(ws, "C2")
@@ -331,10 +473,11 @@ def _format_excel(path):
     ws = wb["full_debug"]
     _freeze(ws, "D2")
     _set_col_widths(ws, {
-        "A": 8, "B": 14, "C": 14,
-        "D": 28, "E": 28, "F": 28, "G": 28,
-        "H": 18, "I": 18, "J": 10, "K": 10,
-        "L": 50, "M": 50, "N": 50, "O": 50,
+        "A": 8,  "B": 14, "C": 14,
+        "D": 14, "E": 14,           # cluster_id_pred, cluster_id_gold
+        "F": 28, "G": 28, "H": 28, "I": 28,
+        "J": 18, "K": 18, "L": 10, "M": 10,
+        "N": 50, "O": 50, "P": 50, "Q": 50,
     })
     for cell in ws[1]:
         cell.font  = HEADER_FONT
@@ -354,26 +497,44 @@ def _format_excel(path):
     # Create a legend sheet for the error analysis
     leg = wb.create_sheet("LEGEND", 0)
     leg.sheet_view.showGridLines = False
-    leg.column_dimensions["A"].width = 22
-    leg.column_dimensions["B"].width = 55
+    leg.column_dimensions["A"].width = 28
+    leg.column_dimensions["B"].width = 65
 
     legend_rows = [
         ("LEGEND", ""),
         ("", ""),
-        ("Sheet",           "Contents"),
-        ("classification",  "Records where pred is_missing ≠ gold is_missing"),
-        ("ner_errors",      "NER_FN = gold entity not found in pred | NER_FP = pred entity not in gold"),
-        ("translation",     "BLEU score comparison (pred vs gold English translation)"),
-        ("pseudonymization","Rows where real names or phone numbers leaked through anonymization"),
-        ("full_debug",      "Complete side-by-side table of all predictions vs gold"),
+        ("Filtering logic", ""),
+        ("classification",
+         "All rows — no filter. Classification errors ARE the pred vs gold comparison."),
+        ("ner_errors",
+         "gold=1 AND pred=1 only. Isolates NER errors from classification mistakes."),
+        ("translation",
+         "gold=1 AND pred=1 only. Evaluates translation quality on correctly classified rows."),
+        ("clustering_errors",
+         "gold=1 AND pred=1 only. Flags rows where pred cluster_id ≠ gold cluster_id."),
+        ("pseudonymization",
+         "gold=1 AND pred=1 only. Evaluates anonymization on correctly classified rows."),
+        ("full_debug",
+         "gold=1 AND pred=1 only. Side-by-side view of all downstream predictions incl. cluster IDs."),
         ("", ""),
-        ("Color coding",    ""),
-        ("🔴 NER_FP",       "False Positive – pred extracted an entity not in gold"),
-        ("🟡 NER_FN",       "False Negative – gold entity was missed by pred"),
-        ("🔴 BLEU Low",     "BLEU < 5% — translation very poor"),
-        ("🟡 BLEU Med",     "BLEU 5–30% — translation partial"),
-        ("🟢 BLEU OK",      "BLEU > 30% — translation good"),
-        ("🔴 Pseudonym",    "Name or phone number leaked through anonymization"),
+        ("Sheet",              "Contents"),
+        ("classification",     "Records where pred is_missing ≠ gold is_missing"),
+        ("ner_errors",         "NER_FN = gold entity not found in pred | NER_FP = pred entity not in gold"),
+        ("translation",        "BLEU score comparison (pred vs gold English translation)"),
+        ("clustering_errors",  "wrong_cluster / missed_cluster / false_cluster — see color coding below"),
+        ("pseudonymization",   "Rows where real names or phone numbers leaked through anonymization"),
+        ("full_debug",         "Complete side-by-side table of all predictions vs gold"),
+        ("", ""),
+        ("Color coding",       ""),
+        ("🔴 NER_FP",          "False Positive – pred extracted an entity not in gold"),
+        ("🟡 NER_FN",          "False Negative – gold entity was missed by pred"),
+        ("🔴 BLEU Low",        "BLEU < 5% — translation very poor"),
+        ("🟡 BLEU Med",        "BLEU 5–30% — translation partial"),
+        ("🟢 BLEU OK",         "BLEU > 30% — translation good"),
+        ("🔴 Pseudonym",       "Name or phone number leaked through anonymization"),
+        ("🔵 wrong_cluster",   "Both pred and gold have a cluster assigned but they disagree"),
+        ("🔵 missed_cluster",  "Gold assigns a cluster but pred returned -1 (singleton)"),
+        ("🔵 false_cluster",   "Pred assigns a cluster but gold says -1"),
     ]
 
     for r_idx, (col_a, col_b) in enumerate(legend_rows, 1):
@@ -381,11 +542,10 @@ def _format_excel(path):
         cb = leg.cell(r_idx, 2, col_b)
         if r_idx == 1:
             ca.font = Font(bold=True, size=14, name="Arial", color="2F4F8F")
-        elif col_a in ("Sheet", "Color coding"):
+        elif col_a in ("Sheet", "Color coding", "Filtering logic"):
             for c in (ca, cb):
-                c.font = Font(bold=True, name="Arial", size=10)
-                c.fill = PatternFill("solid", fgColor="2F4F8F")
                 c.font = Font(bold=True, color="FFFFFF", name="Arial", size=10)
+                c.fill = PatternFill("solid", fgColor="2F4F8F")
         else:
             for c in (ca, cb):
                 c.font = Font(name="Arial", size=10)

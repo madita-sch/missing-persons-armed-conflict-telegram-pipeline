@@ -20,57 +20,47 @@ def get_all_cases():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
-        SELECT case_id, name_ar, name_en, location_ar, location_en, age
+        SELECT case_id, name_ar, name_en, location_ar, location_en, age, verified
         FROM cases
         ORDER BY case_id
     """)
     rows = cur.fetchall()
-    cols = ["case_id", "name_ar", "name_en", "location_ar", "location_en", "age"]
+    cols = ["case_id", "name_ar", "name_en", "location_ar", "location_en", "age", "verified"]
     cur.close()
     conn.close()
     df = pd.DataFrame(rows, columns=cols)
-
-    # Replace empty names with "Unknown name"
     df['name_ar'] = df['name_ar'].fillna('Unknown name').replace('', 'Unknown name')
     df['name_en'] = df['name_en'].fillna('Unknown name').replace('', 'Unknown name')
-
+    df['verified'] = df['verified'].apply(lambda x: '✅ Verified' if x else '⏳ Pending')
     return df
 
 
 def search_cases(q):
     conn = get_conn()
     cur = conn.cursor()
-
-    q = q.replace("*", "%")  # wildcard support
-
+    q = q.replace("*", "%")
     cur.execute("""
-        SELECT case_id, name_ar, name_en, location_ar, location_en, age
+        SELECT case_id, name_ar, name_en, location_ar, location_en, age, verified
         FROM cases
         WHERE name_ar ILIKE %s OR name_en ILIKE %s
            OR location_ar ILIKE %s OR location_en ILIKE %s
     """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"))
-
     rows = cur.fetchall()
-    cols = ["case_id", "name_ar", "name_en", "location_ar", "location_en", "age"]
-
+    cols = ["case_id", "name_ar", "name_en", "location_ar", "location_en", "age", "verified"]
     cur.close()
     conn.close()
     df = pd.DataFrame(rows, columns=cols)
-
-    # Replace empty names with "Unknown name"
     df['name_ar'] = df['name_ar'].fillna('Unknown name').replace('', 'Unknown name')
     df['name_en'] = df['name_en'].fillna('Unknown name').replace('', 'Unknown name')
-
+    df['verified'] = df['verified'].apply(lambda x: '✅ Verified' if x else '⏳ Pending')
     return df
 
 
 def get_case(case_id):
     conn = get_conn()
     cur = conn.cursor()
-
     cur.execute("SELECT * FROM cases WHERE case_id=%s", (case_id,))
     case = cur.fetchone()
-
     cur.execute("""
         SELECT 
             m.message_id,
@@ -86,17 +76,13 @@ def get_case(case_id):
         WHERE m.case_id=%s
         ORDER BY m.posted_at
     """, (case_id,))
-
     rows = cur.fetchall()
     cur.close()
     conn.close()
-
-    # Build telegram links
     messages = []
     for r in rows:
         message_id = r[0]
         link = f"https://t.me/GAZA20249/{message_id}"
-
         messages.append({
             "message_id": message_id,
             "posted_at": r[1],
@@ -108,11 +94,23 @@ def get_case(case_id):
             "reactions": r[7],
             "link": link
         })
-
     return case, messages
 
 
-# Create function to create KPIs
+def verify_case_in_db(case_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE cases
+        SET verified = TRUE,
+            verified_at = NOW()
+        WHERE case_id = %s
+    """, (case_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def get_kpis():
     conn = get_conn()
     cur = conn.cursor()
@@ -120,22 +118,16 @@ def get_kpis():
     total_cases = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM messages")
     messages = cur.fetchone()[0]
-    cur.execute("""
-        SELECT COUNT(DISTINCT c.case_id)
-        FROM cases c
-        JOIN messages m ON c.case_id = m.case_id
-    """)
-    active_cases = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM cases WHERE verified = TRUE")
+    verified_cases = cur.fetchone()[0]
     cur.close()
     conn.close()
-    return total_cases, active_cases, messages
+    return total_cases, verified_cases, messages
 
-# Create function to get analytics data
+
 def get_analytics_data():
     conn = get_conn()
     cur = conn.cursor()
-
-    # Cases by location
     cur.execute("""
         SELECT COALESCE(location_en, 'Unknown') AS loc, COUNT(*) AS cnt
         FROM cases
@@ -144,8 +136,6 @@ def get_analytics_data():
         LIMIT 10
     """)
     loc_rows = cur.fetchall()
-
-    # Messages over time  (only missing=true)
     cur.execute("""
         SELECT DATE_TRUNC('week', posted_at) AS week, COUNT(*) AS cnt
         FROM messages
@@ -154,8 +144,6 @@ def get_analytics_data():
         ORDER BY week
     """)
     msg_rows = cur.fetchall()
-
-    # Cases by day (only missing=true)
     cur.execute("""
         SELECT DATE(posted_at) AS day, COUNT(*) AS cnt
         FROM messages
@@ -164,21 +152,16 @@ def get_analytics_data():
         ORDER BY day
     """)
     cases_by_day_rows = cur.fetchall()
-
-    # Total cases
     cur.execute("SELECT COUNT(*) FROM cases")
     total_cases = cur.fetchone()[0]
-
-    # Total messages
     cur.execute("SELECT COUNT(*) FROM messages")
     total_messages = cur.fetchone()[0]
-
     cur.close()
     conn.close()
     return loc_rows, msg_rows, cases_by_day_rows, total_cases, total_messages
 
 
-# Define constants for stying, coloring, etc.
+# Styling constants
 SIDEBAR_BG   = "#0F172A"
 ACCENT       = "#3B82F6"
 ACCENT_GREEN = "#10B981"
@@ -188,14 +171,14 @@ PAGE_BG      = "#F1F5F9"
 CARD_BG      = "#FFFFFF"
 TEXT_DARK    = "#1E293B"
 TEXT_MED     = "#64748B"
-
 FONT = "'IBM Plex Sans', 'Helvetica Neue', sans-serif"
+
 GOOGLE_FONT = html.Link(
     rel="stylesheet",
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
 )
 
-# Define reusable components like cards, tables, etc.
+
 def card(children, style=None):
     base = {
         "backgroundColor": CARD_BG,
@@ -208,7 +191,7 @@ def card(children, style=None):
         base.update(style)
     return html.Div(children, style=base)
 
-# KPI card component
+
 def kpi_card(title, value, color, icon):
     return html.Div([
         html.Div([
@@ -235,17 +218,15 @@ def kpi_card(title, value, color, icon):
     })
 
 
-# Define helpers for building tables, charts, and other components
 def build_cases_table(df, table_id="results-table"):
-    """Render a styled DataTable for a cases dataframe."""
-    # Column name mapping
     name_mapping = {
-        "case_id": "Case ID",
-        "name_ar": "Name (Ar)",
-        "name_en": "Name (En)",
+        "case_id":     "Case ID",
+        "name_ar":     "Name (Ar)",
+        "name_en":     "Name (En)",
         "location_ar": "Location (Ar)",
         "location_en": "Location (En)",
-        "age": "Age"
+        "age":         "Age",
+        "verified":    "Status",
     }
     columns = [{"name": name_mapping.get(c, c.replace("_", " ").title()), "id": c} for c in df.columns]
     return dash_table.DataTable(
@@ -306,6 +287,22 @@ def build_cases_table(df, table_id="results-table"):
                 },
                 "fontStyle": "italic",
             },
+            {
+                "if": {
+                    "column_id": "verified",
+                    "filter_query": '{verified} = "✅ Verified"'
+                },
+                "color": ACCENT_GREEN,
+                "fontWeight": "600",
+            },
+            {
+                "if": {
+                    "column_id": "verified",
+                    "filter_query": '{verified} = "⏳ Pending"'
+                },
+                "color": ACCENT_AMB,
+                "fontWeight": "600",
+            },
         ],
         style_cell_conditional=[
             {"if": {"column_id": "name_ar"},
@@ -317,11 +314,12 @@ def build_cases_table(df, table_id="results-table"):
              "maxWidth": "180px", "whiteSpace": "normal", "height": "auto"},
             {"if": {"column_id": "location_en"},
              "maxWidth": "180px", "whiteSpace": "normal", "height": "auto"},
+            {"if": {"column_id": "verified"},
+             "maxWidth": "100px"},
         ],
     )
 
 
-# Layout
 NAV_ITEM_STYLE = {
     "padding": "12px 16px",
     "cursor": "pointer",
@@ -336,15 +334,12 @@ NAV_ITEM_STYLE = {
     "fontFamily": FONT,
 }
 
-# Initialize Dash app
 app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Missing Persons Dashboard"
 
-# Define the main layout of the app, which will be rendered after login
+
 def get_main_layout():
     return html.Div([
-
-        # Create a sidebar
         html.Div([
             html.Div([
                 html.Div("🔍", style={"fontSize": "24px"}),
@@ -360,14 +355,12 @@ def get_main_layout():
                 ])
             ], style={"display": "flex", "alignItems": "center",
                       "gap": "12px", "marginBottom": "36px"}),
-
             html.Div([
                 html.Div(id="nav-cases-btn", children=["📁  Cases"],
                          n_clicks=0, style=NAV_ITEM_STYLE),
                 html.Div(id="nav-analytics-btn", children=["📊  Analytics"],
                          n_clicks=0, style=NAV_ITEM_STYLE),
             ]),
-
             html.Div("v1.0", style={
                 "position": "absolute", "bottom": "24px", "left": "20px",
                 "color": "#334155", "fontSize": "11px", "fontFamily": FONT
@@ -382,8 +375,6 @@ def get_main_layout():
             "boxSizing": "border-box",
             "zIndex": "100",
         }),
-
-        # Create Main area
         html.Div([
             html.Div(id="page-content")
         ], style={
@@ -394,13 +385,11 @@ def get_main_layout():
             "boxSizing": "border-box",
             "fontFamily": FONT,
         }),
-
-        # Hidden stores for inter-component communication
         dcc.Store(id="active-page", data="cases"),
         dcc.Store(id="selected-case-id", data=None),
         dcc.Store(id="search-performed", data=False),
-
     ], style={"margin": "0", "padding": "0", "fontFamily": FONT})
+
 
 app.layout = html.Div([
     GOOGLE_FONT,
@@ -410,7 +399,6 @@ app.layout = html.Div([
 ])
 
 
-# Login Callback
 @app.callback(
     [Output("logged_in", "data"), Output("login-error-store", "data")],
     Input("login-btn", "n_clicks"),
@@ -420,11 +408,9 @@ app.layout = html.Div([
 def login(n_clicks, password):
     if password == "missing_db26":
         return True, ""
-    else:
-        return False, "Incorrect password. Try again."
+    return False, "Incorrect password. Try again."
 
 
-# Callback for logged-in content rendering
 @app.callback(
     Output("app-content", "children"),
     Input("logged_in", "data"),
@@ -435,27 +421,35 @@ def render_app_content(logged_in, error_msg):
         return html.Div([
             html.Div([
                 html.H1("Missing Persons Database", style={
-                    "textAlign": "center", "marginBottom": "20px", "color": TEXT_DARK, "fontFamily": FONT
+                    "textAlign": "center", "marginBottom": "20px",
+                    "color": TEXT_DARK, "fontFamily": FONT
                 }),
                 html.Div("Enter Password:", style={
-                    "textAlign": "center", "marginBottom": "10px", "fontSize": "16px", "fontFamily": FONT
+                    "textAlign": "center", "marginBottom": "10px",
+                    "fontSize": "16px", "fontFamily": FONT
                 }),
                 dcc.Input(id="password-input", type="password", placeholder="Password", style={
-                    "width": "200px", "padding": "10px", "fontSize": "16px", "textAlign": "center", "margin": "0 auto", "display": "block", "fontFamily": FONT
+                    "width": "200px", "padding": "10px", "fontSize": "16px",
+                    "textAlign": "center", "margin": "0 auto", "display": "block", "fontFamily": FONT
                 }),
                 html.Button("Login", id="login-btn", n_clicks=0, style={
-                    "marginTop": "20px", "padding": "10px 20px", "fontSize": "16px", "backgroundColor": ACCENT, "color": "white", "border": "none", "borderRadius": "5px", "cursor": "pointer", "display": "block", "margin": "20px auto", "fontFamily": FONT
+                    "marginTop": "20px", "padding": "10px 20px", "fontSize": "16px",
+                    "backgroundColor": ACCENT, "color": "white", "border": "none",
+                    "borderRadius": "5px", "cursor": "pointer", "display": "block",
+                    "margin": "20px auto", "fontFamily": FONT
                 }),
-                html.Div(error_msg, style={"textAlign": "center", "color": ACCENT_RED, "marginTop": "10px", "fontFamily": FONT})
+                html.Div(error_msg, style={
+                    "textAlign": "center", "color": ACCENT_RED,
+                    "marginTop": "10px", "fontFamily": FONT
+                })
             ], style={
-                "position": "absolute", "top": "50%", "left": "50%", "transform": "translate(-50%, -50%)", "textAlign": "center"
+                "position": "absolute", "top": "50%", "left": "50%",
+                "transform": "translate(-50%, -50%)", "textAlign": "center"
             })
         ], style={"height": "100vh", "backgroundColor": PAGE_BG, "fontFamily": FONT})
-    else:
-        return get_main_layout()
+    return get_main_layout()
 
 
-# Callback for navigation and page rendering
 @app.callback(
     Output("active-page", "data"),
     Input("nav-cases-btn", "n_clicks"),
@@ -470,20 +464,19 @@ def update_active_page(cases_clicks, analytics_clicks):
         return "analytics"
     return no_update
 
+
 @app.callback(
     Output("page-content", "children"),
     Input("active-page", "data")
 )
 def render_page(page):
 
-    # ── CASES PAGE ───────────────────────────────
     if page == "cases":
         try:
-            total, active, messages = get_kpis()
+            total, verified, messages = get_kpis()
         except Exception:
-            total, active, messages = "—", "—", "—"
+            total, verified, messages = "—", "—", "—"
 
-        # Load all cases for the default table
         try:
             df_all = get_all_cases()
             all_cases_table = html.Div([
@@ -500,24 +493,17 @@ def render_page(page):
             )
 
         return html.Div([
-
-            # Header
             html.Div([
-                # LEFT: Title
                 html.Div([
                     html.H1("Cases", style={
-                        "margin": "0",
-                        "fontSize": "26px",
-                        "fontWeight": "700",
-                        "color": TEXT_DARK
+                        "margin": "0", "fontSize": "26px",
+                        "fontWeight": "700", "color": TEXT_DARK
                     }),
                     html.P(
                         "Browse and search missing persons cases from Telegram channels",
                         style={"margin": "4px 0 0", "color": TEXT_MED, "fontSize": "14px"}
                     )
                 ]),
-
-                # RIGHT: Search bar
                 html.Div([
                     dcc.Input(
                         id="search-input",
@@ -548,11 +534,7 @@ def render_page(page):
                             "fontSize": "14px",
                         }
                     )
-                ], style={
-                    "display": "flex",
-                    "alignItems": "center"
-                })
-
+                ], style={"display": "flex", "alignItems": "center"})
             ], style={
                 "display": "flex",
                 "justifyContent": "space-between",
@@ -560,41 +542,39 @@ def render_page(page):
                 "marginBottom": "28px"
             }),
 
-            # KPI Row
             html.Div([
-                kpi_card("Total Cases", total,    ACCENT,       "📁"),
-                kpi_card("Messages",   messages, ACCENT_GREEN, "💬"),
+                kpi_card("Total Cases",     total,    ACCENT,       "📁"),
+                kpi_card("Verified Cases",  verified, ACCENT_GREEN, "✅"),
+                kpi_card("Messages",        messages, ACCENT_AMB,   "💬"),
             ], style={"display": "flex", "gap": "16px", "marginBottom": "28px"}),
 
-            # Full cases table (hidden when search results are shown)
             html.Div(id="all-cases-section", children=[
                 card([
                     html.Div("All Cases", style={
                         "fontSize": "15px", "fontWeight": "600",
                         "color": TEXT_DARK, "marginBottom": "8px"
                     }),
-                    html.Div("Select a case to see the profile below.", style={
-                        "fontSize": "13px", "color": TEXT_MED, "marginBottom": "16px"
-                    }),
+                    html.Div(
+                        "Select a case to see the full profile and verify it below.",
+                        style={"fontSize": "13px", "color": TEXT_MED, "marginBottom": "16px"}
+                    ),
                     all_cases_table,
                 ], style={"marginBottom": "24px"})
             ]),
 
-            # Search results (replaces full list when a search is performed)
             html.Div(id="search-output", style={"marginBottom": "24px"}),
-
-            # Case detail
             html.Div(id="case-detail"),
+
+            # Hidden store for current case ID used by verify callback
+            dcc.Store(id="current-case-id", data=None),
         ])
 
-    # Analytics page
     if page == "analytics":
         try:
             loc_rows, msg_rows, cases_by_day_rows, total_cases, total_messages = get_analytics_data()
         except Exception:
             loc_rows, msg_rows, cases_by_day_rows, total_cases, total_messages = [], [], [], "—", "—"
 
-        # Location bar chart
         if loc_rows:
             df_loc = pd.DataFrame(loc_rows, columns=["Location", "Cases"])
             fig_loc = px.bar(
@@ -613,7 +593,6 @@ def render_page(page):
         else:
             loc_chart = html.Div("No location data", style={"color": TEXT_MED})
 
-        # Messages timeline
         if msg_rows:
             df_msg = pd.DataFrame(msg_rows, columns=["Week", "Messages"])
             df_msg["Week"] = pd.to_datetime(df_msg["Week"])
@@ -632,39 +611,26 @@ def render_page(page):
         else:
             msg_chart = html.Div("No message data", style={"color": TEXT_MED})
 
-        # Cases by day chart
         if cases_by_day_rows:
             df_cbd = pd.DataFrame(cases_by_day_rows, columns=["Date", "Cases"])
-
             fig_cbd = px.bar(
-                df_cbd,
-                x="Date",
-                y="Cases",
+                df_cbd, x="Date", y="Cases",
                 title="Cases by Day",
                 color_discrete_sequence=[ACCENT_GREEN]
             )
-
             fig_cbd.update_layout(
-                plot_bgcolor="white",
-                paper_bgcolor="white",
+                plot_bgcolor="white", paper_bgcolor="white",
                 title_font_size=15,
                 margin=dict(l=0, r=0, t=40, b=0),
                 xaxis=dict(gridcolor="#F1F5F9"),
                 yaxis=dict(gridcolor="#F1F5F9"),
             )
-
-            cbd_chart = dcc.Graph(
-                figure=fig_cbd,
-                config={"displayModeBar": False}
-            )
-
+            cbd_chart = dcc.Graph(figure=fig_cbd, config={"displayModeBar": False})
         else:
-            cbd_chart = html.Div(
-                "No cases-by-day data available.",
-                style={"color": TEXT_MED, "fontSize": "13px"}
-            )
-        return html.Div([
+            cbd_chart = html.Div("No cases-by-day data available.",
+                                 style={"color": TEXT_MED, "fontSize": "13px"})
 
+        return html.Div([
             html.Div([
                 html.H1("Analytics", style={
                     "margin": "0", "fontSize": "26px",
@@ -673,27 +639,20 @@ def render_page(page):
                 html.P("Trends and breakdowns across all cases",
                        style={"margin": "4px 0 0", "color": TEXT_MED, "fontSize": "14px"})
             ], style={"marginBottom": "28px"}),
-
-            # ── KPI: Total cases & messages ──────
             html.Div([
                 kpi_card("Total Cases",    total_cases,    ACCENT,       "📁"),
                 kpi_card("Total Messages", total_messages, ACCENT_GREEN, "💬"),
             ], style={"display": "flex", "gap": "16px", "marginBottom": "24px"}),
-
-            # ── Top row: location + cases by day ──────────────────
             html.Div([
                 card([loc_chart], style={"flex": "1"}),
                 card([cbd_chart], style={"flex": "1"}),
             ], style={"display": "flex", "gap": "16px", "marginBottom": "16px"}),
-
-            # ── Full-width message timeline ────────
             card([msg_chart]),
         ])
 
     return html.Div("Select a section from the sidebar.")
 
 
-# Callback for search
 @app.callback(
     [Output("search-output", "children"), Output("search-performed", "data")],
     Input("search-btn", "n_clicks"),
@@ -708,13 +667,11 @@ def run_search(n_clicks, query):
     except Exception as e:
         return html.Div(f"❌ Database error: {e}",
                         style={"color": ACCENT_RED, "fontSize": "14px"}), True
-
     if df.empty:
         return html.Div("No cases found for that query.",
                         style={"color": TEXT_MED, "fontSize": "14px"}), True
-
     return html.Div([
-        html.Div(f"Found {len(df)} case(s) — select a row to view details below", style={
+        html.Div(f"Found {len(df)} case(s) — select a row to view details and verify below", style={
             "fontSize": "13px", "fontWeight": "600",
             "color": TEXT_MED, "marginBottom": "12px"
         }),
@@ -722,27 +679,26 @@ def run_search(n_clicks, query):
     ]), True
 
 
-# Callback for all cases
 @app.callback(
     Output("all-cases-section", "style"),
     Input("search-performed", "data")
 )
 def toggle_all_cases_visibility(search_performed):
     if search_performed:
-        return {"display": "none"}  # Hide when search performed
-    return {}  # Show by default
+        return {"display": "none"}
+    return {}
 
 
-# Callback for showing case details when a row is selected from all_cases table
 @app.callback(
-    Output("case-detail", "children"),
+    [Output("case-detail", "children"),
+     Output("current-case-id", "data")],
     Input("results-table", "selected_rows"),
     State("results-table", "data"),
     prevent_initial_call=True
 )
 def show_case(selected_rows, table_data):
     if not selected_rows or table_data is None:
-        return ""
+        return "", None
 
     case_id = table_data[selected_rows[0]]["case_id"]
 
@@ -750,23 +706,61 @@ def show_case(selected_rows, table_data):
         case, messages = get_case(case_id)
     except Exception as e:
         return html.Div(f"❌ Error loading case: {e}",
-                        style={"color": ACCENT_RED, "marginTop": "16px"})
+                        style={"color": ACCENT_RED, "marginTop": "16px"}), None
 
     if not case:
-        return html.Div("Case not found.", style={"color": TEXT_MED})
+        return html.Div("Case not found.", style={"color": TEXT_MED}), None
 
     def safe(val):
         return val if val else "—"
 
-    # Include the following rows in the case profile, with safe handling for missing/empty values
+    # Check current verification status
+    is_verified = bool(case[12]) if len(case) > 12 and case[12] is not None else False
+    
     info_rows = [
-        ("Case ID",          safe(case[0])),
-        ("Name (AR)",        safe(case[1])),
-        ("Name (EN)",        safe(case[2])),
-        ("Location (AR)",    safe(case[3])),
-        ("Location (EN)",    safe(case[4])),
-        ("Age",              safe(case[7])),
+        ("Case ID",       safe(case[0])),
+        ("Name (AR)",     safe(case[1])),
+        ("Name (EN)",     safe(case[2])),
+        ("Location (AR)", safe(case[3])),
+        ("Location (EN)", safe(case[4])),
+        ("Age",           safe(case[7])),
+        ("Status",        "✅ Verified" if is_verified else "⏳ Pending review"),
     ]
+
+    verify_section = html.Div([
+        html.Div(
+            "Human-in-the-loop verification: review the extracted information and associated "
+            "messages below, then mark this case as verified if the data is correct.",
+            style={
+                "fontSize": "13px", "color": TEXT_MED,
+                "marginBottom": "12px", "fontStyle": "italic"
+            }
+        ),
+        html.Button(
+            "✅ Verify Case" if not is_verified else "✅ Already Verified",
+            id="verify-btn",
+            n_clicks=0,
+            disabled=is_verified,
+            style={
+                "padding": "10px 20px",
+                "backgroundColor": ACCENT_GREEN if not is_verified else "#94A3B8",
+                "color": "white",
+                "border": "none",
+                "borderRadius": "8px",
+                "cursor": "pointer" if not is_verified else "default",
+                "fontWeight": "600",
+                "fontSize": "14px",
+                "fontFamily": FONT,
+            }
+        ),
+        html.Div(id="verify-status", style={
+            "marginTop": "10px",
+            "fontSize": "13px",
+            "color": TEXT_MED,
+            "fontFamily": FONT,
+        })
+    ], style={"marginTop": "20px", "paddingTop": "16px",
+              "borderTop": "1px solid #E2E8F0"})
 
     profile = card([
         html.Div("📁 Case Profile", style={
@@ -785,39 +779,33 @@ def show_case(selected_rows, table_data):
                 }),
             ], style={"marginBottom": "14px"})
             for label, value in info_rows
-        ])
+        ]),
+        verify_section,
     ], style={"marginTop": "24px", "marginBottom": "16px"})
 
-    # Messages table
     if messages:
         df_m = pd.DataFrame(messages)
         df_m["posted_at"] = pd.to_datetime(df_m["posted_at"]).dt.strftime("%Y-%m-%d")
 
-        # Build Telegram link as markdown if link exists
         def make_link(row):
             link = row.get("link")
-
-            # Handle NaN / floats / None safely
             if pd.notna(link):
                 link = str(link).strip()
                 if link:
                     return f"[Open ↗]({link})"
-
             return "—"
 
         df_m["Telegram Link"] = df_m.apply(make_link, axis=1)
-
-        # Select and rename columns for display
         df_display = df_m[[
             "posted_at", "text_raw", "text_clean_en",
             "views", "forwards", "reactions", "Telegram Link"
         ]].rename(columns={
-            "posted_at":  "Date",
-            "text_raw":   "Arabic Text",
-            "text_clean_en": "English Translation",
-            "views":      "Views",
-            "forwards":   "Forwards",
-            "reactions":  "Reactions",
+            "posted_at":      "Date",
+            "text_raw":       "Arabic Text",
+            "text_clean_en":  "English Translation",
+            "views":          "Views",
+            "forwards":       "Forwards",
+            "reactions":      "Reactions",
         })
 
         msg_section = card([
@@ -859,7 +847,6 @@ def show_case(selected_rows, table_data):
                     "height": "auto",
                     "maxWidth": "300px",
                     "overflow": "hidden",
-                    
                     "textOverflow": "ellipsis",
                     "textAlign": "center",
                 },
@@ -872,7 +859,8 @@ def show_case(selected_rows, table_data):
                     {"if": {"column_id": "Views"},     "textAlign": "center", "maxWidth": "70px"},
                     {"if": {"column_id": "Forwards"},  "textAlign": "center", "maxWidth": "80px"},
                     {"if": {"column_id": "Reactions"}, "textAlign": "center", "maxWidth": "80px"},
-                    {"if": {"column_id": "Telegram Link"}, "textAlign": "center", "maxWidth": "100px"},
+                    {"if": {"column_id": "Telegram Link"},
+                     "textAlign": "center", "maxWidth": "100px"},
                 ],
                 tooltip_data=[
                     {
@@ -890,9 +878,24 @@ def show_case(selected_rows, table_data):
                      style={"color": TEXT_MED, "fontSize": "14px"})
         ], style={"marginBottom": "16px"})
 
-    return html.Div([profile, msg_section])
+    return html.Div([profile, msg_section]), case_id
 
 
-# Run the app
+@app.callback(
+    Output("verify-status", "children"),
+    Input("verify-btn", "n_clicks"),
+    State("current-case-id", "data"),
+    prevent_initial_call=True
+)
+def verify_case(n_clicks, case_id):
+    if not case_id:
+        return "No case selected."
+    try:
+        verify_case_in_db(case_id)
+        return "✅ Case successfully verified and saved to database."
+    except Exception as e:
+        return f"❌ Error verifying case: {e}"
+
+
 if __name__ == "__main__":
     app.run(debug=True)

@@ -3,7 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz
-from sklearn.metrics import accuracy_score, f1_score, adjusted_rand_score
+from sklearn.metrics import accuracy_score, f1_score, adjusted_rand_score, classification_report
 from nltk.translate.bleu_score import sentence_bleu
 
 
@@ -90,6 +90,12 @@ def evaluate_classification(df_pred, df_gold):
         y_true = merged["is_missing_gold"].astype(int)
         y_pred = merged["is_missing_pred"].astype(int)
 
+        # ADD THESE THREE LINES
+        print("\n--- Per-class breakdown ---")
+        print(classification_report(y_true, y_pred,
+                                    target_names=["not missing", "missing"],
+                                    digits=3))
+        
         return {
             "task":        "classification",
             "entity":      "-",
@@ -171,11 +177,21 @@ def evaluate_ner(df_pred, df_gold):
 # Evaluate clustering function — runs only on gold is_missing == 1 rows
 def evaluate_clustering(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
-
-    # Filter to rows where gold says is_missing == 1
     missing_only = merged[merged["is_missing_gold"] == 1].copy()
     missing_only["cluster_id_gold"] = missing_only["cluster_id_gold"].fillna(-1).astype(int)
     missing_only["cluster_id_pred"] = missing_only["cluster_id_pred"].fillna(-1).astype(int)
+
+    # Normalise singleton cluster IDs to -1 before computing ARI.
+    # Singletons receive arbitrary unique IDs that differ between pred and gold,
+    # which ARI penalises even when the underlying partition is identical.
+    # Normalising ensures only true multi-message clusters affect the score.
+    def normalize_cluster_ids(series):
+        counts = series.value_counts()
+        singletons = set(counts[counts == 1].index)
+        return series.apply(lambda x: -1 if x in singletons else x)
+
+    missing_only["cluster_id_gold_norm"] = normalize_cluster_ids(missing_only["cluster_id_gold"])
+    missing_only["cluster_id_pred_norm"] = normalize_cluster_ids(missing_only["cluster_id_pred"])
 
     try:
         return {
@@ -183,8 +199,8 @@ def evaluate_clustering(df_pred, df_gold):
             "entity":   "-",
             "n_eval":   len(missing_only),
             "ARI":      adjusted_rand_score(
-                missing_only["cluster_id_gold"],
-                missing_only["cluster_id_pred"],
+                missing_only["cluster_id_gold_norm"],
+                missing_only["cluster_id_pred_norm"],
             ),
             "accuracy": None, "f1_macro": None, "f1_weighted": None,
             "precision": None, "recall": None, "f1": None,

@@ -15,6 +15,7 @@ CREATE TYPE entity_kind AS ENUM ('name', 'location', 'date', 'age');
 
 -- CASES  (one row per missing-person cluster)
 -- case_id == cluster_id from the dataset (excluding -1 = unassigned as non-missing cases)
+-- CASES  (one row per missing-person cluster)
 CREATE TABLE cases (
     case_id            INTEGER PRIMARY KEY,
     name_ar            TEXT,
@@ -27,12 +28,15 @@ CREATE TABLE cases (
     message_count      INTEGER NOT NULL DEFAULT 0,
     first_seen_at      TIMESTAMPTZ,
     last_seen_at       TIMESTAMPTZ,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    verified           BOOLEAN NOT NULL DEFAULT FALSE,
+    verified_at        TIMESTAMPTZ
 );
 
 COMMENT ON TABLE  cases       IS 'Case-level entity. One case = one missing person (cluster).';
 COMMENT ON COLUMN cases.case_id IS 'Mirrors cluster_id from the NLP pipeline. -1 (unassigned) is excluded.';
-
+COMMENT ON COLUMN cases.verified    IS 'TRUE if a practitioner has human-reviewed and confirmed the case via the dashboard.';
+COMMENT ON COLUMN cases.verified_at IS 'Timestamp of when the case was verified by a practitioner.';
 
 -- MESSAGES  (raw Telegram posts)
 CREATE TABLE messages (
@@ -97,6 +101,8 @@ SELECT
     c.age,
     c.message_count,
     c.first_seen_at, c.last_seen_at,
+    c.verified,                       
+    c.verified_at, 
     json_agg(
         json_build_object(
             'message_id', m.message_id,

@@ -3,7 +3,7 @@ import pandas as pd
 from src.evaluation.evaluation_nlp import normalize_dataframe
 from src.evaluation.error_analysis_nlp import build_error_analysis_report
 
-# Run error analysis and save results to CSV
+# Run error analysis and save results to Excel
 if __name__ == "__main__":
 
     PRED_PATH = "outputs/pred_Gaza20249.csv"
@@ -19,15 +19,3 @@ if __name__ == "__main__":
         df["cluster_id"] = pd.to_numeric(df["cluster_id"], errors="coerce").fillna(-1).astype(int)
 
     report = build_error_analysis_report(df_pred, df_gold, output_path=OUTPUT_PATH)
-
-    print("\n===== CLASSIFICATION SAMPLE =====")
-    print(report["classification"].head(10))
-
-    print("\n===== NER SAMPLE =====")
-    print(report["ner"].head(10))
-
-    print("\n===== TRANSLATION SAMPLE =====")
-    print(report["translation"].head(10))
-
-    print("\n===== PSEUDONYMIZATION SAMPLE =====")
-    print(report["pseudonymization"].head(10))
