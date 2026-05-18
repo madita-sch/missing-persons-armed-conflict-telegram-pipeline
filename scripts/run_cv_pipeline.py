@@ -16,8 +16,11 @@ from src.cv.shirt_color import (
 )
 from src.cv.image_similarity import get_embedding
 
+# Configuration: replace with folder containing images
+INPUT_FOLDER = "data/images"
+
 # Load data
-image_items = load_valid_images("data/images")
+image_items = load_valid_images(INPUT_FOLDER, delete_corrupt=False)
 
 # Initialize results list and embeddings list
 results = []

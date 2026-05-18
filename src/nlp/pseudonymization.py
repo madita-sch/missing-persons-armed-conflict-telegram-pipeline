@@ -98,12 +98,6 @@ def build_index(registry):
 # Fuzzy name matching (span detection)
 # to match names even when tokens slightly separated or extra tokens appear
 def find_name_span(name_tokens, words, start):
-    """
-    Try to match name_tokens as an in-order subsequence starting
-    at words[start], within a window of len(name_tokens) + SLACK.
-
-    Returns (coverage, span_end) or (0, 0) if no match.
-    """
     n = len(name_tokens)
     max_end = min(start + n + SLACK, len(words))
 

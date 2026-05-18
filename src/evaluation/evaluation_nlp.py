@@ -50,7 +50,7 @@ def is_match(a, b, threshold=90):
     return False
 
 
-# Alignment-based P/R/F1 with fuzzy matching
+# Define Score entities function: Alignment-based P/R/F1 with fuzzy matching
 def score_entities(pred_list, gold_list):
     if not pred_list and not gold_list:
         return None, None, None
@@ -82,7 +82,7 @@ def score_entities(pred_list, gold_list):
     return precision, recall, f1
 
 
-# Evaluate classification function — runs on ALL rows (by design)
+# Evaluate classification function: on ALL rows (missing and not missing)
 def evaluate_classification(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -121,7 +121,7 @@ def evaluate_classification(df_pred, df_gold):
         }
 
 
-# Evaluate NER function — runs only on gold is_missing == 1 rows
+# Evaluate NER function: only on gold is_missing == 1 rows
 def evaluate_ner(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -174,7 +174,7 @@ def evaluate_ner(df_pred, df_gold):
         ]
 
 
-# Evaluate clustering function — runs only on gold is_missing == 1 rows
+# Evaluate clustering function: only on gold is_missing == 1 rows
 def evaluate_clustering(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
     missing_only = merged[merged["is_missing_gold"] == 1].copy()
@@ -216,7 +216,7 @@ def evaluate_clustering(df_pred, df_gold):
         }
 
 
-# Evaluate translation function — runs only on gold is_missing == 1 rows
+# Evaluate translation function: only on gold is_missing == 1 rows
 def evaluate_translation(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
 
@@ -254,7 +254,7 @@ def evaluate_translation(df_pred, df_gold):
         }
 
 
-# Evaluate pseudonymization function — runs only on gold is_missing == 1 rows
+# Evaluate pseudonymization function: only on gold is_missing == 1 rows
 def evaluate_pseudonymization(df_pred, df_gold):
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
     missing_only = merged[merged["is_missing_gold"] == 1].copy()

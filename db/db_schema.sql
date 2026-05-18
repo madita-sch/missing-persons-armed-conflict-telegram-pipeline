@@ -1,8 +1,8 @@
--- Missing Persons DB Schema
-
+-- Missing Persons DB Schema to set up the PostgreSQL database
 
 BEGIN;
 
+-- Define schema for missing persons Telegram dataset, incl. tables for cases, messages, translations, anonymized text, and extracted entities.
 DROP TABLE IF EXISTS extracted_entities CASCADE;
 DROP TABLE IF EXISTS message_anonymized CASCADE;
 DROP TABLE IF EXISTS message_translations CASCADE;
@@ -10,12 +10,11 @@ DROP TABLE IF EXISTS messages CASCADE;
 DROP TABLE IF EXISTS cases CASCADE;
 DROP TYPE  IF EXISTS entity_kind;
 
+-- Create ENUM datatype for entity kinds (only allowed values of 'name', 'location', 'date', 'age')
 CREATE TYPE entity_kind AS ENUM ('name', 'location', 'date', 'age');
 
 
--- CASES  (one row per missing-person cluster)
--- case_id == cluster_id from the dataset (excluding -1 = unassigned as non-missing cases)
--- CASES  (one row per missing-person cluster)
+-- Cases Table (one row per missing-person cluster)
 CREATE TABLE cases (
     case_id            INTEGER PRIMARY KEY,
     name_ar            TEXT,
@@ -33,14 +32,15 @@ CREATE TABLE cases (
     verified_at        TIMESTAMPTZ
 );
 
+-- Indexes for efficient querying
 COMMENT ON TABLE  cases       IS 'Case-level entity. One case = one missing person (cluster).';
 COMMENT ON COLUMN cases.case_id IS 'Mirrors cluster_id from the NLP pipeline. -1 (unassigned) is excluded.';
 COMMENT ON COLUMN cases.verified    IS 'TRUE if a practitioner has human-reviewed and confirmed the case via the dashboard.';
 COMMENT ON COLUMN cases.verified_at IS 'Timestamp of when the case was verified by a practitioner.';
 
--- MESSAGES  (raw Telegram posts)
+-- Messages Table (raw and clean Telegram posts)
 CREATE TABLE messages (
-    message_id    BIGINT PRIMARY KEY,                       -- 'id' column from CSV
+    message_id    BIGINT PRIMARY KEY,                       -- equals the 'id' column from CSV
     case_id       INTEGER REFERENCES cases(case_id) ON DELETE SET NULL,
     posted_at     TIMESTAMPTZ,
     text_raw      TEXT NOT NULL,
@@ -51,6 +51,7 @@ CREATE TABLE messages (
     reactions     INTEGER
 );
 
+-- Indexes for efficient querying
 CREATE INDEX idx_messages_case_id    ON messages(case_id);
 CREATE INDEX idx_messages_posted_at  ON messages(posted_at);
 CREATE INDEX idx_messages_is_missing ON messages(is_missing);
@@ -58,7 +59,7 @@ CREATE INDEX idx_messages_is_missing ON messages(is_missing);
 COMMENT ON TABLE messages IS 'Raw Telegram messages. Linked many-to-one to cases via case_id.';
 
 
--- MESSAGE TRANSLATIONS  (English versions)
+-- Message Translations Table
 CREATE TABLE message_translations (
     message_id     BIGINT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
     text_clean_en  TEXT,
@@ -68,7 +69,7 @@ CREATE TABLE message_translations (
 );
 
 
--- MESSAGE ANONYMIZED  (PII-stripped versions)
+-- Message Pseudonymized Table
 CREATE TABLE message_anonymized (
     message_id        BIGINT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
     clean             TEXT,
@@ -76,22 +77,23 @@ CREATE TABLE message_anonymized (
 );
 
 
--- EXTRACTED ENTITIES  (normalized signals per message)
--- One row per (message, kind, value_ar)
+-- Extracted entities Table, storing each extracted entity as its own row (message, kind, value_ar). 
+-- Link entity_id to cases and messages for easy querying.
 CREATE TABLE extracted_entities (
     entity_id   BIGSERIAL PRIMARY KEY,
-    message_id  BIGINT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
-    case_id     INTEGER REFERENCES cases(case_id) ON DELETE SET NULL,
-    kind        entity_kind NOT NULL,
-    value_ar    TEXT,
-    value_en    TEXT
+    message_id  BIGINT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,  -- Link the entity to the message it was extracted from
+    case_id     INTEGER REFERENCES cases(case_id) ON DELETE SET NULL,         -- Link to case for easier querying, but allow NULL if not assigned to a case yet
+    kind        entity_kind NOT NULL,                   -- Add type of entity, e.g. 'name', 'location', 'date', 'age', cannot be NULL           
+    value_ar    TEXT,                                   -- Original Arabic value of the entity as extracted by the NLP pipeline
+    value_en    TEXT                                    -- English translation of the entity value
 );
 
+-- Indexes for efficient querying
 CREATE INDEX idx_entities_message ON extracted_entities(message_id);
 CREATE INDEX idx_entities_case    ON extracted_entities(case_id);
 CREATE INDEX idx_entities_kind    ON extracted_entities(kind);
 
--- Convenience view: full case page
+-- Create a view to aggregate case details with all linked messages, translations, and pseudonymized text for easy querying in the dashboard
 CREATE OR REPLACE VIEW v_case_page AS
 SELECT
     c.case_id,
@@ -103,6 +105,7 @@ SELECT
     c.first_seen_at, c.last_seen_at,
     c.verified,                       
     c.verified_at, 
+    -- Aggregate messages for this case into a JSON array, including translations and anonymized text, to get one row per case with all linked messages
     json_agg(
         json_build_object(
             'message_id', m.message_id,
@@ -116,10 +119,10 @@ SELECT
             'reactions',  m.reactions
         ) ORDER BY m.posted_at
     ) FILTER (WHERE m.message_id IS NOT NULL) AS messages
-FROM cases c
-LEFT JOIN messages              m ON m.case_id    = c.case_id
-LEFT JOIN message_translations  t ON t.message_id = m.message_id
-LEFT JOIN message_anonymized    a ON a.message_id = m.message_id
-GROUP BY c.case_id;
+FROM cases c    -- Cases table is the main table to ensure one row per case, even if there are no linked messages
+LEFT JOIN messages              m ON m.case_id    = c.case_id       -- Use LEFT JOIN to include cases with no messages
+LEFT JOIN message_translations  t ON t.message_id = m.message_id    -- Left join to include translations if they exist
+LEFT JOIN message_anonymized    a ON a.message_id = m.message_id    -- Left join to include anonymized text if it exists
+GROUP BY c.case_id;                                                 -- Group by case_id to get one row per case with aggregated messages
 
 COMMIT;

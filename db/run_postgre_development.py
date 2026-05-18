@@ -58,9 +58,9 @@ messages_df.rename(columns={
     "text": "text_raw",
 }, inplace=True)
 
-# -1 (unassigned cluster) -> NULL so the FK to cases.case_id is satisfied
+# -1 (unassigned cluster as not a missing person case) become NULL to avoid errors
 messages_df["case_id"] = messages_df["case_id"].replace(-1, np.nan)
-messages_df["case_id"] = messages_df["case_id"].astype("Int64")  # nullable int
+messages_df["case_id"] = messages_df["case_id"].astype("Int64") # Use nullable integer type to allow NULLs
 
 messages_df["is_missing"] = messages_df["is_missing"].fillna(0).astype(bool)
 messages_df["posted_at"]  = pd.to_datetime(messages_df["posted_at"], errors="coerce")
@@ -146,5 +146,3 @@ entities_df.to_sql(
     index=False,
     method="multi"
 )
-
-print("Database successfully populated")

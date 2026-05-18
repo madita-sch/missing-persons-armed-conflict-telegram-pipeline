@@ -64,12 +64,6 @@ def translate_texts(
     batch_size: int = 1,
     delay_between_calls: float = 0.5,
 ) -> list[str]:
-    """
-    Translate a list of Arabic texts to English.
-    Returns a list of translated strings in the same order.
-    batch_size is kept at 1 — Llama translation quality is better one-by-one
-    since batching can cause the model to mix up which text maps to which.
-    """
     results = []
     total = len(texts)
 
@@ -90,11 +84,6 @@ def apply_translation_to_df(
     extra_cols: Optional[list[str]] = None,
     delay_between_calls: float = 0.5,
 ) -> pd.DataFrame:
-    """
-    Translate text_col and optionally extra columns (names, location, dates).
-    Adds _en suffix columns to the dataframe.
-    Only translates rows where text_col is non-empty.
-    """
     df = df.copy()
 
     # Combine main text column with optional additional columns

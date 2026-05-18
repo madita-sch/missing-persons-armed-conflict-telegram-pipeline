@@ -10,14 +10,14 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip("#")
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
-
+# Define a function to compute RGB distance, handling None values
 def rgb_distance(c1, c2):
     if c1 is None or c2 is None:
         return np.nan
 
     return np.linalg.norm(np.array(c1) - np.array(c2))
 
-
+# Define a function to compute color distance
 def compute_color_distance(df):
     df["color_distance"] = df.apply(
         lambda row: rgb_distance(row["pred_rgb"], row["gt_rgb"]),
@@ -25,12 +25,12 @@ def compute_color_distance(df):
     )
     return df
 
-
+# Define a function to compute face detection accuracy
 def compute_face_accuracy(df):
     df["face_correct"] = df["face_detected"] == df["correct_face_detection"]
     return df, df["face_correct"].mean()
 
-
+# Define a function to evaluate color name classification
 def evaluate_names(df):
     valid = df[df["gt_name"].notna() & df["pred_name"].notna()]
 
@@ -44,7 +44,7 @@ def evaluate_names(df):
 
     return report, cm
 
-
+# Define a function to evaluate similarity predictions
 def evaluate_similarity(sim_df, gt_pairs, threshold=0.9):
     sim_df["pred_same"] = sim_df["similarity"] > threshold
 

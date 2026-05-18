@@ -1,7 +1,7 @@
 # Import libraries
 from src.preprocessing.image_preprocessing import load_valid_images, resize_image
 
-# Folder containing images
+# Configuration: replace with folder containing images
 INPUT_FOLDER = "data/images"
 
 # Load valid images

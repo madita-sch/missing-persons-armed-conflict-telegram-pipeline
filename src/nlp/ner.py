@@ -117,11 +117,6 @@ def extract_phones(text: str) -> list[str]:
 
 # Groq NER function 
 def call_groq_ner(text: str, retries: int = 3, delay: float = 2.0) -> dict:
-    """
-    Call Groq with the NER prompt. Returns a dict with keys:
-      missing_names (list), location (str|None), date (str|None), age (str|None)
-    Falls back to empty result on failure.
-    """
     empty = {"missing_names": [], "location": None, "date": None, "age": None}
 
     if not isinstance(text, str) or not text.strip():

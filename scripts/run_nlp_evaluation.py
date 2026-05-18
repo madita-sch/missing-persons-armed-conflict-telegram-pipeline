@@ -9,9 +9,15 @@ from src.evaluation.evaluation_nlp import (
     evaluate_pseudonymization,
 )
 
+# Configuration: replace with paths to predicted, gold NLP datasets, and output path for error analysis report
+PRED_PATH = "outputs/pred_ALMAFKODEN.csv"
+GOLD_PATH = "data/gold_ALMAFKODEN.csv"
+OUTPUT_PATH = "outputs/evaluation_nlp_ALMAFKODEN.csv"
+    
+
 # Define debug helper
 def diff_check(df_pred, df_gold, cols):
-    """Print how many rows differ between pred and gold per column."""
+    # Print how many rows differ between pred and gold per column.
     merged = df_pred.merge(df_gold, on="id", suffixes=("_pred", "_gold"))
     print("\n - DIFF CHECK")
     for col in cols:
@@ -22,10 +28,6 @@ def diff_check(df_pred, df_gold, cols):
 
 # Run evaluations
 if __name__ == "__main__":
-
-    # Load data
-    PRED_PATH = "outputs/pred_Gaza20249.csv"
-    GOLD_PATH = "data/gold_Gaza20249.csv"
 
     # Normalize data
     df_pred = normalize_dataframe(pd.read_csv(PRED_PATH))
@@ -40,7 +42,7 @@ if __name__ == "__main__":
     print("Shape   :", df_pred.shape)
     print(df_pred.head(2))
 
-    # Sanity diff check
+    # Sanity diff check to see how many rows differ between pred and gold for key columns before running evaluations
     diff_check(df_pred, df_gold, ["is_missing", "names", "location", "dates", "age"])
 
     # Run evaluations
@@ -53,11 +55,8 @@ if __name__ == "__main__":
 
     # Display & save results
     results_df = pd.DataFrame(results)
-
-    print("FINAL EVALUATION RESULTS")
+    print("Evaluation results:")
     print(results_df.to_string(index=False))
-
-    results_df.to_csv("outputs/evaluation_nlp_Gaza20249.csv", index=False, encoding="utf-8")
-    print("Saved → outputs/evaluation_nlp_Gaza20249.csv")
+    results_df.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
 
 

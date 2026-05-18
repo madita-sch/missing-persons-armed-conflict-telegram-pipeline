@@ -9,26 +9,21 @@ from dotenv import load_dotenv
 # Load the environment
 load_dotenv()
 
-# Configuration for the Telegram API and data extraction
+# Configuration: Telegram API and data extraction, 
+# Set your API_ID and API_HASH in your .env file before running this script
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
-print(API_ID)
-print(API_HASH)
-# Define Telegram channel
+# Replace withTelegram channel and date range to be extracted
 CHANNEL = "ALMAFKODEN"
-
-# Define date range for data extraction
 START_DATE = pd.Timestamp("2024-12-01", tz="UTC")
 END_DATE = pd.Timestamp("2024-12-31", tz="UTC") 
 
 # Create output directory
 BASE_DIR = "data/text_ALMAFKODEN"
 os.makedirs(BASE_DIR, exist_ok=True)
-
 RAW_PATH = os.path.join(BASE_DIR, "telegram_raw.xlsx")
 CLEAN_PATH = os.path.join(BASE_DIR, "telegram_clean.xlsx")
 SAMPLE_PATH = os.path.join(BASE_DIR, "telegram_sample.xlsx")
-
 
 # Load Telegram data
 df = run_telegram_loader(

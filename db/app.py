@@ -34,7 +34,7 @@ def get_all_cases():
     df['verified'] = df['verified'].apply(lambda x: '✅ Verified' if x else '⏳ Pending')
     return df
 
-
+# Define function to search cases by name or location, including wildcard with *
 def search_cases(q):
     conn = get_conn()
     cur = conn.cursor()
@@ -55,7 +55,7 @@ def search_cases(q):
     df['verified'] = df['verified'].apply(lambda x: '✅ Verified' if x else '⏳ Pending')
     return df
 
-
+# Define function to get case details and messages
 def get_case(case_id):
     conn = get_conn()
     cur = conn.cursor()
@@ -96,7 +96,7 @@ def get_case(case_id):
         })
     return case, messages
 
-
+# Define function to verify a case
 def verify_case_in_db(case_id):
     conn = get_conn()
     cur = conn.cursor()
@@ -110,7 +110,7 @@ def verify_case_in_db(case_id):
     cur.close()
     conn.close()
 
-
+# Define function to get KPIs for the dashboard
 def get_kpis():
     conn = get_conn()
     cur = conn.cursor()
@@ -124,7 +124,7 @@ def get_kpis():
     conn.close()
     return total_cases, verified_cases, messages
 
-
+# Define function to get analytics data for charts
 def get_analytics_data():
     conn = get_conn()
     cur = conn.cursor()
@@ -178,7 +178,7 @@ GOOGLE_FONT = html.Link(
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
 )
 
-
+# Define function to build a card component
 def card(children, style=None):
     base = {
         "backgroundColor": CARD_BG,
@@ -191,7 +191,7 @@ def card(children, style=None):
         base.update(style)
     return html.Div(children, style=base)
 
-
+# Define function to build KPI card
 def kpi_card(title, value, color, icon):
     return html.Div([
         html.Div([
@@ -217,7 +217,7 @@ def kpi_card(title, value, color, icon):
         "fontFamily": FONT,
     })
 
-
+# Define function to build cases table
 def build_cases_table(df, table_id="results-table"):
     name_mapping = {
         "case_id":     "Case ID",
@@ -319,7 +319,7 @@ def build_cases_table(df, table_id="results-table"):
         ],
     )
 
-
+# Navigation item style
 NAV_ITEM_STYLE = {
     "padding": "12px 16px",
     "cursor": "pointer",
@@ -334,10 +334,11 @@ NAV_ITEM_STYLE = {
     "fontFamily": FONT,
 }
 
+# Initialize Dash app
 app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Missing Persons Dashboard"
 
-
+# Define main layout with sidebar and content area
 def get_main_layout():
     return html.Div([
         html.Div([
@@ -390,7 +391,7 @@ def get_main_layout():
         dcc.Store(id="search-performed", data=False),
     ], style={"margin": "0", "padding": "0", "fontFamily": FONT})
 
-
+# Callbacks for login, page rendering, search, case details, and verification, etc.
 app.layout = html.Div([
     GOOGLE_FONT,
     dcc.Store(id="logged_in", data=False),
@@ -398,7 +399,7 @@ app.layout = html.Div([
     html.Div(id="app-content"),
 ])
 
-
+# Callback to handle login attempts
 @app.callback(
     [Output("logged_in", "data"), Output("login-error-store", "data")],
     Input("login-btn", "n_clicks"),
@@ -410,7 +411,7 @@ def login(n_clicks, password):
         return True, ""
     return False, "Incorrect password. Try again."
 
-
+# Callback to render main app content after login
 @app.callback(
     Output("app-content", "children"),
     Input("logged_in", "data"),
@@ -449,7 +450,7 @@ def render_app_content(logged_in, error_msg):
         ], style={"height": "100vh", "backgroundColor": PAGE_BG, "fontFamily": FONT})
     return get_main_layout()
 
-
+# Callback to update active page based on navigation clicks
 @app.callback(
     Output("active-page", "data"),
     Input("nav-cases-btn", "n_clicks"),
@@ -464,7 +465,7 @@ def update_active_page(cases_clicks, analytics_clicks):
         return "analytics"
     return no_update
 
-
+# Callback to render page content based on active page
 @app.callback(
     Output("page-content", "children"),
     Input("active-page", "data")
@@ -652,7 +653,7 @@ def render_page(page):
 
     return html.Div("Select a section from the sidebar.")
 
-
+# Callback to run search when search button is clicked
 @app.callback(
     [Output("search-output", "children"), Output("search-performed", "data")],
     Input("search-btn", "n_clicks"),
@@ -678,7 +679,7 @@ def run_search(n_clicks, query):
         build_cases_table(df, table_id="results-table"),
     ]), True
 
-
+# Callback to hide "All Cases" section when a search is performed
 @app.callback(
     Output("all-cases-section", "style"),
     Input("search-performed", "data")
@@ -688,7 +689,7 @@ def toggle_all_cases_visibility(search_performed):
         return {"display": "none"}
     return {}
 
-
+# Callback to show case details when a row is selected
 @app.callback(
     [Output("case-detail", "children"),
      Output("current-case-id", "data")],
@@ -880,7 +881,7 @@ def show_case(selected_rows, table_data):
 
     return html.Div([profile, msg_section]), case_id
 
-
+# Callback to verify case when button is clicked
 @app.callback(
     Output("verify-status", "children"),
     Input("verify-btn", "n_clicks"),
@@ -896,6 +897,6 @@ def verify_case(n_clicks, case_id):
     except Exception as e:
         return f"❌ Error verifying case: {e}"
 
-
+# Run the app
 if __name__ == "__main__":
     app.run(debug=True)

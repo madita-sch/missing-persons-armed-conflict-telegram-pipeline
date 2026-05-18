@@ -3,9 +3,13 @@ import pandas as pd
 from src.evaluation.evaluation_cv import *
 import ast
 
+# Configuration: replace with paths to gold and prediction CV datasets
+GOLD_DATA_PATH = "data/gold_cv.csv"
+PREDICTION_DATA_PATH = "outputs/cv_results.csv"
+
 # Load datasets
-gt = pd.read_csv("data/gold_cv.csv")
-pred = pd.read_csv("outputs/cv_results.csv")
+gt = pd.read_csv(GOLD_DATA_PATH)
+pred = pd.read_csv(PREDICTION_DATA_PATH)
 
 # Merge on file name
 df = pd.merge(gt, pred, on="file")

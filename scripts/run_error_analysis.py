@@ -3,12 +3,14 @@ import pandas as pd
 from src.evaluation.evaluation_nlp import normalize_dataframe
 from src.evaluation.error_analysis_nlp import build_error_analysis_report
 
+
+# Configuration: replace with paths to predicted, gold NLP datasets, and output path for error analysis report
+PRED_PATH = "outputs/pred_Gaza20249.csv"
+GOLD_PATH = "data/gold_Gaza20249.csv"
+OUTPUT_PATH = "outputs/error_analysis_nlp_Gaza20249.xlsx"
+
 # Run error analysis and save results to Excel
 if __name__ == "__main__":
-
-    PRED_PATH = "outputs/pred_Gaza20249.csv"
-    GOLD_PATH = "data/gold_Gaza20249.csv"
-    OUTPUT_PATH = "outputs/error_analysis_nlp_Gaza20249.xlsx"
 
     df_pred = normalize_dataframe(pd.read_csv(PRED_PATH))
     df_gold = normalize_dataframe(pd.read_csv(GOLD_PATH))

@@ -28,14 +28,6 @@ def resize_image(path, target_size=TARGET_SIZE):
 
 # Function to load valid images from a folder
 def load_valid_images(input_folder, delete_corrupt=False, extensions=(".jpg", ".jpeg", ".png")):
-    """
-    Returns:
-        List of dicts:
-        {
-            "file": filename,
-            "path": full_path
-        }
-    """
 
     image_items = []
 

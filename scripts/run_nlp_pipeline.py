@@ -8,13 +8,20 @@ from src.nlp.translation import apply_translation_to_df
 from src.nlp.clustering import normalize, build_graph, extract_clusters
 from src.nlp.pseudonymization import pseudonymize_dataframe
 
+# Configuration: replace with paths to input Telegram dataset, 
+# output path for predictions, model path for classification, sample size
+INPUT_PATH = "data/text_ALMAFKODEN/telegram_clean.xlsx"
+OUTPUT_PATH = "outputs/pred_ALMAFKODEN.csv"
+MODEL_PATH = "./model_output"
+SAMPLE_SIZE = 100
+
 # Define main pipeline function merging all steps (classification, NER, translation, clustering, pseudonymization)
 # Adapt input and output paths, and sample_size as needed
 def run_nlp_pipeline(
-    input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
-    output_path="outputs/pred_ALMAFKODEN.csv",
-    model_path="./model_output",
-    sample_size=100,
+    input_path=INPUT_PATH,
+    output_path=OUTPUT_PATH,
+    model_path=MODEL_PATH,
+    sample_size=SAMPLE_SIZE,
     run_ner=True,
     run_translation=True,
     run_clustering=True,
@@ -126,8 +133,8 @@ def run_nlp_pipeline(
 # Run the pipeline
 if __name__ == "__main__":
     run_nlp_pipeline(
-    input_path="data/text_ALMAFKODEN/telegram_clean.xlsx",
-    output_path="outputs/pred_ALMAFKODEN.csv",
-        sample_size=100,
+    input_path=INPUT_PATH,
+    output_path=OUTPUT_PATH,
+        sample_size=SAMPLE_SIZE,
     )
     
