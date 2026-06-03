@@ -16,6 +16,12 @@ into a PostgreSQL database, accessible via an interactive Dash dashboard.
 
 
 ## Running the pipeline 
+### Note
+Create a .env file in the project root with the following variables:
+GROQ_API_KEY=your_value
+DB_URI=your_value
+API_ID=your_value (Telegram)
+API_HASH=your_value (Telegram)
 ### 1 Install dependencies:
 ```bash
 pip install -r requirements.txt
