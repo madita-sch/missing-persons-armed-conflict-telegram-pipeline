@@ -1,4 +1,4 @@
-# Missing Persons — Armed Conflict Telegram Pipeline
+# Missing Persons - Armed Conflict Telegram Pipeline
 A research pipeline for extracting, detecting and structuring missing persons reports from Arabic-language 
 Telegram channels. The system combines NLP and Computer Vision to extract, analyse and organize missing case data 
 into a PostgreSQL database, accessible via an interactive Dash dashboard.
