@@ -82,3 +82,4 @@ python app.py
 ```
 Then open [http://localhost:8050](http://localhost:8050) in your browser.
 The dashboard is password protected. Password available upon request to the researcher.
+For access to data and model outputs, contact: madita.schulte@iu-study.org
