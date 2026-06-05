@@ -81,4 +81,4 @@ python db/run_postgre_development.py
 python app.py
 ```
 Then open [http://localhost:8050](http://localhost:8050) in your browser.
-The dashboard is password protected. Password: `missing_db26`
+The dashboard is password protected. Password available upon request to the researcher.
